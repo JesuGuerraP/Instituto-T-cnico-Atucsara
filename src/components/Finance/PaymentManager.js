@@ -131,46 +131,63 @@ const PaymentManager = () => {
   const showStudentSelect = isStudentPayment || categoriasConEstudianteOpcional.includes(formData.category);
   const studentSelectRequired = isStudentPayment;
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      let dataToSave = { ...formData };
-      if (isStudentPayment) {
-        dataToSave.teacherId = '';
-      }
-      if (isTeacherPayment) {
-        dataToSave.studentId = '';
-      }
-      // Guardar descuento en el estudiante si es matrícula
-      if (formData.category === 'Matrícula' && formData.studentId) {
-        const descuentoAplicado = discounts[formData.studentId] || 0;
-        await updateDoc(doc(db, 'students', formData.studentId), { descuento: descuentoAplicado });
-      }
-      if (editingTransaction) {
-        await updateDoc(doc(db, 'payments', editingTransaction.id), {
-          ...dataToSave,
-          updated_at: new Date().toISOString(),
-        });
-        toast.success('Transacción actualizada correctamente');
-      } else {
-        await addDoc(collection(db, 'payments'), {
-          ...dataToSave,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
-        toast.success('Transacción registrada correctamente');
-      }
-      await fetchTransactions();
-      await fetchStudents(); // Refrescar descuentos
-      resetForm();
-    } catch (error) {
-      toast.error('Error al guardar la transacción.');
-      console.error('Error al guardar transacción:', error);
-    } finally {
-      setLoading(false);
+ const handleSubmit = async (e) => {
+  e.preventDefault();
+  setLoading(true);
+  try {
+    let dataToSave = { ...formData };
+    if (isStudentPayment) {
+      dataToSave.teacherId = '';
     }
-  };
+    if (isTeacherPayment) {
+      dataToSave.studentId = '';
+    }
+    // Guardar descuento en el estudiante si es matrícula
+    if (formData.category === 'Matrícula' && formData.studentId) {
+      const descuentoAplicado = discounts[formData.studentId] || 0;
+      await updateDoc(doc(db, 'students', formData.studentId), { descuento: descuentoAplicado });
+    }
+    // Calcular el siguiente número de recibo secuencial
+    let nextRecibo = 1;
+    if (!editingTransaction) {
+      // Buscar el mayor número de recibo existente
+      const recibos = transactions
+        .map(t => t.reciboNumero)
+        .filter(n => n && /^\d{4}$/.test(n))
+        .map(n => parseInt(n, 10));
+      if (recibos.length > 0) {
+        nextRecibo = Math.max(...recibos) + 1;
+      }
+      dataToSave.reciboNumero = nextRecibo.toString().padStart(4, '0');
+    }
+    // Guardar la fecha exactamente como la selecciona el usuario, sin manipular offset
+    const fechaSeleccionada = formData.date;
+    if (editingTransaction) {
+      await updateDoc(doc(db, 'payments', editingTransaction.id), {
+        ...dataToSave,
+        date: fechaSeleccionada,
+        updated_at: fechaSeleccionada,
+      });
+      toast.success('Transacción actualizada correctamente');
+    } else {
+      await addDoc(collection(db, 'payments'), {
+        ...dataToSave,
+        date: fechaSeleccionada,
+        created_at: fechaSeleccionada,
+        updated_at: fechaSeleccionada,
+      });
+      toast.success('Transacción registrada correctamente');
+    }
+    await fetchTransactions();
+    await fetchStudents(); // Refrescar descuentos
+    resetForm();
+  } catch (error) {
+    toast.error('Error al guardar la transacción.');
+    console.error('Error al guardar transacción:', error);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const resetForm = () => {
     setFormData({
@@ -494,7 +511,11 @@ const PaymentManager = () => {
               <div className="flex flex-col md:flex-row items-end md:items-center gap-2 md:gap-4">
                 <div className="text-right">
                   <p className="text-sm text-gray-600">Fecha</p>
-                  <p className="font-medium">{transaction.date ? new Date(transaction.date).toLocaleDateString() : ''}</p>
+                  <p className="font-medium">{transaction.date ? (() => {
+                    // Evitar desfase de zona horaria interpretando yyyy-MM-dd como local
+                    const [year, month, day] = transaction.date.split('-');
+                    return `${day}/${month}/${year}`;
+                  })() : ''}</p>
                 </div>
                 <div className="text-right">
                   <p className={`text-2xl font-bold ${transaction.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>{transaction.type === 'income' ? '+' : '-'}${Number(transaction.amount).toLocaleString()}</p>
@@ -503,7 +524,7 @@ const PaymentManager = () => {
                 <div className="flex gap-2">
                   <button onClick={() => handleEdit(transaction)} className="border rounded px-2 py-1 text-[#ffd600] hover:bg-gray-50 text-xs">Editar</button>
                   <button onClick={() => handleDelete(transaction.id)} className="border rounded px-2 py-1 text-red-600 hover:bg-red-100 text-xs">Eliminar</button>
-                  <button onClick={() => { setPagoParaRecibo(transaction); setReciboNumero(generarNumeroRecibo(transaction)); }} className="border rounded px-2 py-1 text-blue-600 hover:bg-blue-50 text-xs">Imprimir</button>
+                  <button onClick={() => { setPagoParaRecibo(transaction); setReciboNumero(transaction.reciboNumero || ''); }} className="border rounded px-2 py-1 text-blue-600 hover:bg-blue-50 text-xs">Imprimir</button>
                 </div>
               </div>
             </div>
@@ -620,7 +641,10 @@ const PaymentManager = () => {
                 {pagosModuloPorEstudiante[resumenEstudianteId]?.map(pago => (
                   <tr key={pago.id} className="border-b">
                     <td className="py-1">{pago.description}</td>
-                    <td className="py-1">{pago.date ? new Date(pago.date).toLocaleDateString() : ''}</td>
+                    <td className="py-1">{pago.date ? (() => {
+                      const [year, month, day] = pago.date.split('-');
+                      return `${day}/${month}/${year}`;
+                    })() : ''}</td>
                     <td className="py-1 text-right">${Number(pago.amount).toLocaleString()}</td>
                     <td className="py-1 text-right flex gap-2 justify-end">
                       <button onClick={() => handleEdit(pago)} className="border rounded px-2 py-1 text-[#ffd600] hover:bg-gray-50 text-xs">Editar</button>
@@ -628,7 +652,7 @@ const PaymentManager = () => {
                       <button
                         onClick={() => {
                           setPagoParaRecibo(pago);
-                          setReciboNumero(generarNumeroRecibo(pago));
+                          setReciboNumero(pago.reciboNumero || '');
                         }}
                         className="border rounded px-2 py-1 text-blue-600 hover:bg-blue-50 text-xs"
                       >Imprimir</button>
@@ -659,9 +683,9 @@ const PaymentManager = () => {
       {/* Modal de impresión de recibo */}
       {pagoParaRecibo && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 print:bg-transparent">
-          <div className="bg-white rounded-lg shadow-lg p-8 max-w-2xl w-full relative border-t-4 border-blue-600 print:shadow-none print:border-0 print:p-0 print:rounded-none">
+          <div className="bg-white rounded-lg shadow-lg p-2 sm:p-4 md:p-8 max-w-full w-full sm:max-w-2xl sm:w-auto relative border-t-4 border-blue-600 print:shadow-none print:border-0 print:p-0 print:rounded-none max-h-[90vh] overflow-y-auto sm:max-h-none sm:overflow-y-visible">
             <button className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 print:hidden" onClick={() => setPagoParaRecibo(null)}>&times;</button>
-            <div ref={printAreaRef}>
+            <div ref={printAreaRef} className="overflow-x-auto">
               <PaymentReceipt
                 pago={pagoParaRecibo}
                 estudiante={students.find(s => s.id === pagoParaRecibo.studentId)}

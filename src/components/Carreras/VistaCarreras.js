@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { DegreeHat, Edit, Add, Book } from '@icon-park/react';
 import { FaTrash } from 'react-icons/fa';
-import { collection, getDocs, addDoc, updateDoc, doc, query, where, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, doc, query, where, deleteDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -49,6 +49,18 @@ const VistaCarreras = () => {
     setLoading(false);
   };
 
+  // Refrescar carreraSeleccionada con datos actualizados de Firestore
+  const refreshCarreraSeleccionada = async (carreraId) => {
+    if (!carreraId) return;
+    const docSnap = await getDoc(doc(db, 'careers', carreraId));
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      const modulosSnap = await getDocs(collection(db, 'careers', carreraId, 'modules'));
+      const modulosArr = modulosSnap.docs.map(m => ({ id: m.id, ...m.data() }));
+      setCarreraSeleccionada({ id: carreraId, ...data, modulos: modulosArr });
+    }
+  };
+
   // Cargar profesores para el select
   useEffect(() => {
     const fetchProfesores = async () => {
@@ -61,6 +73,7 @@ const VistaCarreras = () => {
   // Cargar al montar
   useEffect(() => {
     fetchCarreras();
+    // No refrescar carreraSeleccionada aquí, porque puede ser null al inicio
   }, []);
 
   // Cargar seminarios de la carrera seleccionada
@@ -125,7 +138,10 @@ const VistaCarreras = () => {
       setFormCarrera({ nombre: '', descripcion: '', duracion: 6 });
       setModalCarrera(false);
       // Esperar a que Firestore propague el cambio antes de recargar
-      setTimeout(fetchCarreras, 500);
+      setTimeout(() => {
+        fetchCarreras();
+        if (carreraSeleccionada) refreshCarreraSeleccionada(carreraSeleccionada.id);
+      }, 500);
     } catch (e) {
       toast.error('Error al crear la carrera');
     }
@@ -211,7 +227,10 @@ const VistaCarreras = () => {
       setModalModulo(false);
       setEditandoModulo(null);
       // Esperar a que Firestore propague el cambio antes de recargar
-      setTimeout(fetchCarreras, 500);
+      setTimeout(() => {
+        fetchCarreras();
+        if (carreraSeleccionada) refreshCarreraSeleccionada(carreraSeleccionada.id);
+      }, 500);
     } catch (e) {
       toast.error('Error al guardar el módulo');
     }
@@ -232,7 +251,10 @@ const VistaCarreras = () => {
       await updateDoc(carreraRef, { seminarios: seminariosEdit });
       toast.success('Seminarios actualizados');
       setModalSeminarios(false);
-      setTimeout(fetchCarreras, 500);
+      setTimeout(() => {
+        fetchCarreras();
+        if (carreraSeleccionada) refreshCarreraSeleccionada(carreraSeleccionada.id);
+      }, 500);
     } catch (e) {
       toast.error('Error al guardar seminarios');
     }
@@ -251,7 +273,10 @@ const VistaCarreras = () => {
       toast.success('Módulo eliminado correctamente');
       setModalConfirmacionModulo(false);
       setModuloAEliminar(null);
-      fetchCarreras();
+      setTimeout(() => {
+        fetchCarreras();
+        if (carreraSeleccionada) refreshCarreraSeleccionada(carreraSeleccionada.id);
+      }, 500);
     }
   };
 
