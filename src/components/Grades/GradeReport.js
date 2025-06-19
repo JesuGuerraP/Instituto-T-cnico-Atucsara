@@ -57,19 +57,35 @@ const GradeReport = ({ grades, onClose }) => {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-lg p-4 md:p-8 max-w-5xl w-full mx-auto border-l-4 border-[#009245]" ref={printRef}>
-      {/* Botón imprimir */}
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-2xl font-bold bg-[#23408e] text-white px-3 py-2 rounded w-full">
+    <div className="bg-white rounded-lg shadow-lg p-3 md:p-5 max-w-xs w-full mx-auto border-l-4 border-[#009245] ref={printRef} overflow-x-auto">
+      {/* Encabezado del recibo */}
+      <div className="flex flex-col items-center mb-4">
+        <h2 className="text-base font-bold bg-[#23408e] text-white px-2 py-1 rounded w-full text-center sm:text-lg">
           Informe de Notas por Módulo: {moduleName}
         </h2>
-        <button
-          onClick={handlePrint}
-          className="ml-4 px-4 py-2 bg-[#ffd600] text-[#23408e] rounded hover:bg-[#23408e] hover:text-white border border-[#23408e] font-semibold print:hidden"
-        >
-          Imprimir
-        </button>
+        <div className="mt-2 bg-[#ffd600] text-[#23408e] px-3 py-1 rounded text-sm sm:text-base">
+          Número de Recibo: <span className="font-bold">#12345</span>
+        </div>
       </div>
+      {/* Ajustes en tablas */}
+      <table className="min-w-full border mb-2 sm:table-auto">
+        <thead>
+          <tr>
+            <th className="border px-1 py-1 text-left text-xs sm:text-sm">Total Alumnos</th>
+            <th className="border px-1 py-1 text-left text-xs sm:text-sm">Promedio General</th>
+            <th className="border px-1 py-1 text-left text-xs sm:text-sm">Nota Máxima</th>
+            <th className="border px-1 py-1 text-left text-xs sm:text-sm">Nota Mínima</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td className="border px-1 py-1 text-xs sm:text-sm">{resumenModulo.totalAlumnos}</td>
+            <td className="border px-1 py-1 text-xs sm:text-sm">{resumenModulo.promedioGeneral}</td>
+            <td className="border px-1 py-1 text-xs sm:text-sm">{resumenModulo.notaMaxima}</td>
+            <td className="border px-1 py-1 text-xs sm:text-sm">{resumenModulo.notaMinima}</td>
+          </tr>
+        </tbody>
+      </table>
       {onClose && (
         <button
           className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-xl print:hidden"
@@ -78,29 +94,6 @@ const GradeReport = ({ grades, onClose }) => {
           &times;
         </button>
       )}
-
-      {/* Resumen general */}
-      <div className="mb-4">
-        <h3 className="font-semibold text-lg mb-2 text-[#009245]">Resumen General del Módulo</h3>
-        <table className="min-w-full border mb-2">
-          <thead>
-            <tr>
-              <th className="border px-2 py-1 text-left">Total Alumnos</th>
-              <th className="border px-2 py-1 text-left">Promedio General</th>
-              <th className="border px-2 py-1 text-left">Nota Máxima</th>
-              <th className="border px-2 py-1 text-left">Nota Mínima</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td className="border px-2 py-1">{resumenModulo.totalAlumnos}</td>
-              <td className="border px-2 py-1">{resumenModulo.promedioGeneral}</td>
-              <td className="border px-2 py-1">{resumenModulo.notaMaxima}</td>
-              <td className="border px-2 py-1">{resumenModulo.notaMinima}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
 
       {/* Panel por alumno */}
       {notasPorAlumno.map(stu => {
@@ -136,21 +129,21 @@ const GradeReport = ({ grades, onClose }) => {
                 <table className="min-w-full border">
                   <thead>
                     <tr>
-                      <th className="border px-2 py-1 text-left">Actividad</th>
-                      <th className="border px-2 py-1 text-left">Grupo</th>
-                      <th className="border px-2 py-1 text-left">Nota</th>
-                      <th className="border px-2 py-1 text-left">Fecha</th>
-                      <th className="border px-2 py-1 text-left">Profesor</th>
+                      <th className="border px-1 py-1 text-left text-xs sm:text-sm">Actividad</th>
+                      <th className="border px-1 py-1 text-left text-xs sm:text-sm">Grupo</th>
+                      <th className="border px-1 py-1 text-left text-xs sm:text-sm">Nota</th>
+                      <th className="border px-1 py-1 text-left text-xs sm:text-sm">Fecha</th>
+                      <th className="border px-1 py-1 text-left text-xs sm:text-sm">Profesor</th>
                     </tr>
                   </thead>
                   <tbody>
                     {stu.notas.map((n, i) => (
                       <tr key={i}>
-                        <td className="border px-2 py-1">{n.activityName}</td>
-                        <td className="border px-2 py-1">{n.groupName}</td>
-                        <td className="border px-2 py-1">{n.grade}</td>
-                        <td className="border px-2 py-1">{n.date}</td>
-                        <td className="border px-2 py-1">{n.teacherName}</td>
+                        <td className="border px-1 py-1 text-xs sm:text-sm">{n.activityName}</td>
+                        <td className="border px-1 py-1 text-xs sm:text-sm">{n.groupName}</td>
+                        <td className="border px-1 py-1 text-xs sm:text-sm">{n.grade}</td>
+                        <td className="border px-1 py-1 text-xs sm:text-sm">{n.date}</td>
+                        <td className="border px-1 py-1 text-xs sm:text-sm">{n.teacherName}</td>
                       </tr>
                     ))}
                   </tbody>
