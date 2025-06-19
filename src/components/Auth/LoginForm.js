@@ -105,7 +105,7 @@ const LoginForm = () => {
           </form>
         )}
         <div className="mt-6 text-center text-gray-400 text-xs">
-          &copy; {new Date().getFullYear()} Instituto Técnico Laboral Atucsara. Todos los derechos reservados.
+          &copy; {new Date().getFullYear()} Instituto Técnico Laboral Atucsara. Todos los derechos reservados. <br />Development & Design: Jesús Guerra
         </div>
       </div>
     </div>
