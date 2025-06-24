@@ -4,6 +4,7 @@ import { db } from '../../firebaseConfig';
 import { format } from 'date-fns';
 import { toast } from 'react-toastify';
 import PaymentReceipt from './PaymentReceipt';
+import Select from 'react-select';
 
 const categoryOptions = [
   'Matrícula',
@@ -48,6 +49,8 @@ const PaymentManager = () => {
   const [teachers, setTeachers] = useState([]);
   const [resumenEstudianteId, setResumenEstudianteId] = useState(null);
   const [discounts, setDiscounts] = useState({}); // Almacenar descuentos por estudiante
+  // Estado para búsqueda de estudiante en el modal
+  const [studentSearchTerm, setStudentSearchTerm] = useState('');
 
   // Estados para el modal de confirmación de eliminación
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -555,17 +558,27 @@ const PaymentManager = () => {
               {showStudentSelect && (
                 <div>
                   <label className="block text-sm font-medium mb-1">Estudiante</label>
-                  <select
-                    className="w-full border rounded p-2"
-                    value={formData.studentId || ''}
-                    onChange={handleStudentSelect}
+                  <Select
+                    className="mb-2"
+                    options={students.map(student => ({
+                      value: student.id,
+                      label: student.name || student.fullName || student.email
+                    }))}
+                    value={students
+                      .filter(student => student.id === formData.studentId)
+                      .map(student => ({ value: student.id, label: student.name || student.fullName || student.email }))[0] || null}
+                    onChange={option => {
+                      const studentId = option ? option.value : '';
+                      setFormData({ ...formData, studentId });
+                      if (studentId && discounts[studentId] !== undefined) {
+                        setDiscounts(prev => ({ ...prev, [studentId]: discounts[studentId] }));
+                      }
+                    }}
+                    isClearable
+                    placeholder="Buscar y seleccionar estudiante..."
+                    isSearchable
                     required={studentSelectRequired}
-                  >
-                    <option value="">Selecciona un estudiante</option>
-                    {students.map(student => (
-                      <option key={student.id} value={student.id}>{student.name || student.fullName || student.email}</option>
-                    ))}
-                  </select>
+                  />
                 </div>
               )}
               {/* Campo de descuento solo si es matrícula o si es pago de módulo y el estudiante tiene descuento */}
