@@ -260,41 +260,63 @@ const TeacherDashboard = () => {
             Módulos Asignados
           </h2>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {modulosAsignados.map((modulo) => (
-              <div
-                key={modulo.id}
-                className={`border rounded-lg p-4 transition-colors ${{
-                  aprobado: 'bg-green-100 border-green-300',
-                  cursando: 'bg-blue-100 border-blue-300',
-                  pendiente: 'bg-gray-100 border-gray-300',
-                }[modulo.estado || 'pendiente']}`}
-              >
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <h3 className="font-bold text-lg text-[#23408e]">{modulo.nombre}</h3>
-                    <p className="text-sm text-[#009245] font-semibold">Carrera: {modulo.carrera}</p>
+            {modulosAsignados.map((modulo) => {
+              // Calcular el estado real del módulo según los estudiantes asignados
+              const estudiantesModulo = estudiantes.filter(est => est.modulosAsignados?.some(m => m.id === modulo.id));
+              const estados = estudiantesModulo.map(est => {
+                const modEst = est.modulosAsignados.find(m => m.id === modulo.id);
+                return modEst?.estado || 'pendiente';
+              });
+              let estadoModulo = 'pendiente';
+              if (estados.length > 0) {
+                if (estados.every(e => e === 'aprobado')) {
+                  estadoModulo = 'aprobado';
+                } else if (estados.every(e => e === 'cursando')) {
+                  estadoModulo = 'cursando';
+                } else if (estados.some(e => e === 'pendiente')) {
+                  estadoModulo = 'pendiente';
+                } else if (estados.some(e => e === 'cursando')) {
+                  estadoModulo = 'cursando';
+                }
+              }
+              const colorBg = {
+                aprobado: 'bg-green-100 border-green-300',
+                cursando: 'bg-blue-100 border-blue-300',
+                pendiente: 'bg-gray-100 border-gray-300',
+              }[estadoModulo];
+              const colorBadge = {
+                aprobado: 'bg-green-200 text-green-800',
+                cursando: 'bg-blue-200 text-blue-800',
+                pendiente: 'bg-gray-200 text-gray-800',
+              }[estadoModulo];
+              return (
+                <div
+                  key={modulo.id}
+                  className={`border rounded-lg p-4 transition-colors ${colorBg}`}
+                >
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <h3 className="font-bold text-lg text-[#23408e]">{modulo.nombre}</h3>
+                      <p className="text-sm text-[#009245] font-semibold">Carrera: {modulo.carrera}</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setSelectedModule(modulo);
+                        setShowStudentsModal(true);
+                      }}
+                      className="px-3 py-1 bg-[#23408e] text-white rounded-full text-sm hover:bg-[#009245] transition-colors"
+                    >
+                      Ver Estudiantes
+                    </button>
                   </div>
-                  <button
-                    onClick={() => {
-                      setSelectedModule(modulo);
-                      setShowStudentsModal(true);
-                    }}
-                    className="px-3 py-1 bg-[#23408e] text-white rounded-full text-sm hover:bg-[#009245] transition-colors"
-                  >
-                    Ver Estudiantes
-                  </button>
+                  <div className="text-sm text-gray-600 mt-2">
+                    <div>Semestre: {modulo.semestre}</div>
+                    <div>Cantidad de sábados: {modulo.sabadosSemana || 0}</div>
+                    <div className={`mt-2 px-2 py-1 rounded-full text-xs font-semibold text-center ${colorBadge}`}>{estadoModulo.charAt(0).toUpperCase() + estadoModulo.slice(1)}</div>
+                  </div>
                 </div>
-                <div className="text-sm text-gray-600 mt-2">
-                  <div>Semestre: {modulo.semestre}</div>
-                  <div>Cantidad de sábados: {modulo.sabadosSemana || 0}</div>
-                  <div className={`mt-2 px-2 py-1 rounded-full text-xs font-semibold text-center ${{
-                    aprobado: 'bg-green-200 text-green-800',
-                    cursando: 'bg-blue-200 text-blue-800',
-                    pendiente: 'bg-gray-200 text-gray-800',
-                  }[modulo.estado || 'pendiente']}`}>{modulo.estado || 'Pendiente'}</div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -319,7 +341,7 @@ const TeacherDashboard = () => {
               </button>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
               <table className="min-w-full border rounded-lg">
                 <thead>
                   <tr className="bg-[#e3eafc]">
