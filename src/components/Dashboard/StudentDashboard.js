@@ -166,27 +166,76 @@ const StudentDashboard = () => {
   studentAttendance.forEach(rec => {
     if (!asistenciaPorModulo[rec.moduleName]) asistenciaPorModulo[rec.moduleName] = { total: 0, asistidos: 0 };
     Object.entries(rec.attendance || {}).forEach(([dateStr, val]) => {
-      const dateObj = new Date(dateStr);
-      if (dateObj.getMonth() === rec.month && dateObj.getFullYear() === rec.year) {
-        asistenciaPorModulo[rec.moduleName].total++;
-        if (val === true) asistenciaPorModulo[rec.moduleName].asistidos++;
-      }
+      asistenciaPorModulo[rec.moduleName].total++;
+      if (val === true) asistenciaPorModulo[rec.moduleName].asistidos++;
     });
   });
-  // Obtener el módulo con mayor asistencia (o el primero si hay empate)
-  const modulosConAsistencia = Object.entries(asistenciaPorModulo).map(([mod, data]) => ({
-    modulo: mod,
-    porcentaje: data.total > 0 ? Math.round((data.asistidos / data.total) * 100) : 0
-  }));
-  const moduloMayorAsistencia = modulosConAsistencia.length > 0 ? modulosConAsistencia.reduce((a, b) => (a.porcentaje >= b.porcentaje ? a : b)) : null;
-  // Cantidad de módulos actualmente cursando y sus nombres
-  const modulosCursando = (studentInfo?.modulosAsignados || [])
-    .filter(m => m.estado === 'cursando')
-    .map(m => {
-      // Buscar el nombre real del módulo en careerModules
-      const moduloObj = careerModules.find(cm => cm.id === m.id);
-      return moduloObj ? moduloObj.nombre : 'Módulo';
-    });
+  // --- Lógica para mostrar asistencia por módulo según estado (usando moduleName real del registro de asistencia) ---
+  // Buscar módulo "cursando" (si hay), si no, el último "aprobado"
+  let moduloResumenNombre = null;
+  let porcentajeResumen = null;
+  if (studentInfo && Array.isArray(studentInfo.modulosAsignados)) {
+    // Buscar todos los módulos en estado cursando
+    const cursandoArr = studentInfo.modulosAsignados.filter(m => m.estado === 'cursando');
+    if (cursandoArr.length > 0) {
+      // Si hay más de uno, buscar el de mayor porcentaje de asistencia
+      let mejorModulo = null;
+      let mejorPorcentaje = null;
+      cursandoArr.forEach(modAsignado => {
+        // Sumar todas las asistencias de todos los registros de ese módulo para el estudiante
+        const registros = studentAttendance.filter(rec => (rec.moduleId === modAsignado.id || rec.moduleName === modAsignado.nombre || rec.moduleName === (careerModules.find(cm => cm.id === modAsignado.id)?.nombre)));
+        let total = 0;
+        let asistidos = 0;
+        registros.forEach(rec => {
+          Object.entries(rec.attendance || {}).forEach(([dateStr, val]) => {
+            total++;
+            if (val === true) asistidos++;
+          });
+        });
+        let porcentaje = total > 0 ? Math.round((asistidos / total) * 100) : 0;
+        let nombreModulo = registros.length > 0 ? registros[0].moduleName : (careerModules.find(cm => cm.id === modAsignado.id)?.nombre || 'Módulo');
+        if (mejorModulo === null || porcentaje > mejorPorcentaje) {
+          mejorModulo = nombreModulo;
+          mejorPorcentaje = porcentaje;
+        }
+      });
+      moduloResumenNombre = mejorModulo;
+      porcentajeResumen = mejorPorcentaje;
+    } else {
+      // Buscar el último aprobado (por orden de aparición en modulosAsignados)
+      const aprobados = studentInfo.modulosAsignados.filter(m => m.estado === 'aprobado');
+      if (aprobados.length > 0) {
+        const moduloAsignado = aprobados[aprobados.length - 1];
+        const registros = studentAttendance.filter(rec => (rec.moduleId === moduloAsignado.id || rec.moduleName === moduloAsignado.nombre || rec.moduleName === (careerModules.find(cm => cm.id === moduloAsignado.id)?.nombre)));
+        let total = 0;
+        let asistidos = 0;
+        registros.forEach(rec => {
+          Object.entries(rec.attendance || {}).forEach(([dateStr, val]) => {
+            total++;
+            if (val === true) asistidos++;
+          });
+        });
+        if (registros.length > 0) {
+          moduloResumenNombre = registros[0].moduleName;
+          porcentajeResumen = total > 0 ? Math.round((asistidos / total) * 100) : 0;
+        } else {
+          const moduloObj = careerModules.find(cm => cm.id === moduloAsignado.id);
+          moduloResumenNombre = moduloObj ? moduloObj.nombre : 'Módulo';
+          porcentajeResumen = 0;
+        }
+      }
+    }
+  }
+  // Cantidad de módulos actualmente cursando y sus nombres (únicos, sin duplicados y solo válidos)
+  const modulosCursando = Array.from(new Set(
+    (studentInfo?.modulosAsignados || [])
+      .filter(m => m.estado === 'cursando')
+      .map(m => {
+        const moduloObj = careerModules.find(cm => cm.id === m.id);
+        return moduloObj ? moduloObj.nombre : null;
+      })
+      .filter(Boolean)
+  ));
   // Cantidad de módulos logrados (aprobados)
   const modulosAprobados = (studentInfo?.modulosAsignados || [])
     .filter(m => m.estado === 'aprobado')
@@ -250,10 +299,10 @@ const StudentDashboard = () => {
 
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          {/* Asistencia por módulo */}
+          {/* Asistencia por módulo (modificada según lógica requerida) */}
           <div className="bg-white rounded-2xl shadow-lg p-6 flex flex-col items-center border-t-4 border-green-400 hover:scale-105 transition-transform duration-200">
-            <div className="text-3xl font-extrabold text-green-600 mb-1">{moduloMayorAsistencia ? `${moduloMayorAsistencia.porcentaje}%` : '--'}</div>
-            <div className="text-base font-semibold text-gray-700">{moduloMayorAsistencia ? moduloMayorAsistencia.modulo : 'Sin datos'}</div>
+            <div className="text-3xl font-extrabold text-green-600 mb-1">{moduloResumenNombre ? `${porcentajeResumen}%` : '--'}</div>
+            <div className="text-base font-semibold text-gray-700">{moduloResumenNombre ? moduloResumenNombre : 'Sin datos'}</div>
             <div className="mt-2 text-sm text-gray-400">Asistencia por módulo</div>
           </div>
           {/* Módulos actualmente cursando */}
@@ -454,7 +503,6 @@ const StudentDashboard = () => {
             <table className="min-w-full border rounded-lg">
               <thead>
                 <tr className="bg-[#23408e] text-white">
-                  <th className="px-4 py-2 text-left font-semibold">Mes</th>
                   <th className="px-4 py-2 text-center font-semibold">Módulo</th>
                   <th className="px-4 py-2 text-center font-semibold">Sábados</th>
                   <th className="px-4 py-2 text-center font-semibold">Asistencias</th>
@@ -463,40 +511,44 @@ const StudentDashboard = () => {
               </thead>
               <tbody>
                 {studentAttendance.length === 0 && (
-                  <tr><td colSpan={5} className="text-center text-gray-400 py-4">No hay registros de asistencia.</td></tr>
+                  <tr><td colSpan={4} className="text-center text-gray-400 py-4">No hay registros de asistencia.</td></tr>
                 )}
-                {studentAttendance.sort((a, b) => {
-                  if (a.year !== b.year) return b.year - a.year;
-                  if (a.month !== b.month) return b.month - a.month;
-                  return a.moduleName.localeCompare(b.moduleName);
-                }).map((rec, idx) => {
-                  let totalSab = 0;
-                  let asistidos = 0;
-                  Object.entries(rec.attendance || {}).forEach(([dateStr, val]) => {
-                    const dateObj = new Date(dateStr);
-                    if (dateObj.getMonth() === rec.month && dateObj.getFullYear() === rec.year) {
-                      totalSab++;
-                      if (val === true) asistidos++;
+                {(() => {
+                  // Agrupar y fusionar asistencias por módulo (todas las fechas de todos los meses)
+                  const asistenciaPorModulo = {};
+                  studentAttendance.forEach(rec => {
+                    const mod = rec.moduleName;
+                    if (!mod) return;
+                    if (!asistenciaPorModulo[mod]) {
+                      asistenciaPorModulo[mod] = { attendance: {}, moduleName: mod, recs: [] };
                     }
+                    Object.entries(rec.attendance || {}).forEach(([dateStr, val]) => {
+                      asistenciaPorModulo[mod].attendance[dateStr] = val;
+                    });
+                    asistenciaPorModulo[mod].recs.push(rec);
                   });
-                  return (
-                    <tr key={rec.id} className="border-b">
-                      <td className="px-4 py-2">{months[rec.month]} {rec.year}</td>
-                      <td className="px-4 py-2 text-center">{rec.moduleName}</td>
-                      <td className="px-4 py-2 text-center">{totalSab}</td>
-                      <td className="px-4 py-2 text-center">
-                        <span className="inline-block px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 mr-2">{asistidos} Asistió</span>
-                        <span className="inline-block px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">{totalSab - asistidos} No asistió</span>
-                      </td>
-                      <td className="px-4 py-2 text-center">
-                        <button
-                          className="border rounded px-2 py-1 text-[#23408e] hover:bg-gray-50 text-xs font-semibold"
-                          onClick={() => setDetailRecord(rec)}
-                        >Ver detalles</button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                  // Mostrar una fila por módulo, sumando todos los sábados y asistencias de todos los meses
+                  return Object.values(asistenciaPorModulo).map((modRec, idx) => {
+                    const totalSab = Object.keys(modRec.attendance).length;
+                    const asistidos = Object.values(modRec.attendance).filter(val => val === true).length;
+                    return (
+                      <tr key={modRec.moduleName} className="border-b">
+                        <td className="px-4 py-2 text-center">{modRec.moduleName}</td>
+                        <td className="px-4 py-2 text-center">{totalSab}</td>
+                        <td className="px-4 py-2 text-center">
+                          <span className="inline-block px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 mr-2">{asistidos} Asistió</span>
+                          <span className="inline-block px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">{totalSab - asistidos} No asistió</span>
+                        </td>
+                        <td className="px-4 py-2 text-center">
+                          <button
+                            className="border rounded px-2 py-1 text-[#23408e] hover:bg-gray-50 text-xs font-semibold"
+                            onClick={() => setDetailRecord({ ...modRec.recs[0], moduleName: modRec.moduleName, attendance: modRec.attendance })}
+                          >Ver detalles</button>
+                        </td>
+                      </tr>
+                    );
+                  });
+                })()}
               </tbody>
             </table>
           </div>
@@ -518,7 +570,7 @@ const StudentDashboard = () => {
               </div>
               <div className="mb-4">
                 <div className="font-semibold text-lg text-[#23408e]">Módulo: {detailRecord.moduleName || '-'}</div>
-                <div className="text-gray-500">Mes: {months[detailRecord.month]} {detailRecord.year}</div>
+                <div className="text-gray-500">Mostrando todas las asistencias registradas en este módulo</div>
               </div>
               <div className="overflow-x-auto">
                 <table className="min-w-full border rounded-lg">
@@ -529,21 +581,32 @@ const StudentDashboard = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {Object.entries(detailRecord.attendance || {}).filter(([date]) => {
-                      const d = new Date(date);
-                      return d.getMonth() === detailRecord.month && d.getFullYear() === detailRecord.year;
-                    }).map(([date, val]) => (
-                      <tr key={date} className="border-b">
-                        <td className="px-4 py-2 font-semibold text-[#23408e]">{new Date(date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
-                        <td className="px-4 py-2 text-center">
-                          {val === true ? (
-                            <span className="inline-block px-3 py-1 rounded-full bg-green-100 text-green-700 font-semibold">Asistió</span>
-                          ) : (
-                            <span className="inline-block px-3 py-1 rounded-full bg-red-100 text-red-700 font-semibold">No asistió</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                    {/* Mostrar todas las asistencias de todos los meses/años para este módulo */}
+                    {(() => {
+                      // Buscar todos los registros de asistencia de este módulo
+                      const allModuleRecords = studentAttendance.filter(r => r.moduleName === detailRecord.moduleName);
+                      // Unir todas las fechas de asistencia en un solo objeto
+                      const allAttendance = {};
+                      allModuleRecords.forEach(r => {
+                        Object.entries(r.attendance || {}).forEach(([date, val]) => {
+                          allAttendance[date] = val;
+                        });
+                      });
+                      // Ordenar fechas descendente
+                      const sortedDates = Object.keys(allAttendance).sort((a, b) => new Date(b) - new Date(a));
+                      return sortedDates.map(date => (
+                        <tr key={date} className="border-b">
+                          <td className="px-4 py-2 font-semibold text-[#23408e]">{new Date(date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                          <td className="px-4 py-2 text-center">
+                            {allAttendance[date] === true ? (
+                              <span className="inline-block px-3 py-1 rounded-full bg-green-100 text-green-700 font-semibold">Asistió</span>
+                            ) : (
+                              <span className="inline-block px-3 py-1 rounded-full bg-red-100 text-red-700 font-semibold">No asistió</span>
+                            )}
+                          </td>
+                        </tr>
+                      ));
+                    })()}
                   </tbody>
                 </table>
               </div>
