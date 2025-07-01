@@ -657,6 +657,9 @@ const VistaCarreras = () => {
                             onChange={e => {
                               const arr = [...seminariosEdit];
                               arr[idx].profesor = e.target.value;
+                              // Buscar email del profesor seleccionado
+                              const profObj = profesores.find(p => (p.name + ' ' + (p.lastName || '')) === e.target.value);
+                              arr[idx].profesorEmail = profObj ? profObj.email : '';
                               setSeminariosEdit(arr);
                             }}
                           >
@@ -672,6 +675,7 @@ const VistaCarreras = () => {
                               onChange={e => {
                                 const arr = [...seminariosEdit];
                                 arr[idx].profesor = e.target.value;
+                                arr[idx].profesorEmail = '';
                                 setSeminariosEdit(arr);
                               }}
                               placeholder="Nombre del profesor"
