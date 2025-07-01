@@ -400,7 +400,12 @@ const StudentsTable = () => {
                       let estado = seminario.estado || 'pendiente';
                       let info = { ...seminario };
                       if (Array.isArray(selectedStudent.seminarios)) {
-                        const sem = selectedStudent.seminarios.find(s => s.id === seminario.id);
+                        // Buscar por id
+                        let sem = selectedStudent.seminarios.find(s => s.id === seminario.id);
+                        // Si no encuentra por id, buscar por nombre y semestre
+                        if (!sem) {
+                          sem = selectedStudent.seminarios.find(s => s.nombre === seminario.nombre && s.semestre === seminario.semestre);
+                        }
                         if (sem) {
                           estado = sem.estado || seminario.estado || 'pendiente';
                           info = { ...seminario, ...sem };
