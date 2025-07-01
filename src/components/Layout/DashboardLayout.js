@@ -56,6 +56,15 @@ const DashboardLayout = () => {
                 Mi Panel
               </Link>
             </li>
+            {/* Enlace de configuración solo para estudiantes */}
+            {currentUser?.role === 'student' && (
+              <li>
+                <Link to="/dashboard/settings" className="flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition group" onClick={() => setSidebarOpen(false)}>
+                  <span className={`mr-3 ${iconColor}`}><SettingTwo theme="outline" size="22" /></span>
+                  Configuración
+                </Link>
+              </li>
+            )}
             {/* Solo mostrar el resto si el usuario NO es estudiante */}
             {currentUser?.role !== 'student' && (
               <>

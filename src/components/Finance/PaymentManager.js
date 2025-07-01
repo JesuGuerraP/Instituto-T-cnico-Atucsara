@@ -4,6 +4,7 @@ import { db } from '../../firebaseConfig';
 import { format } from 'date-fns';
 import { toast } from 'react-toastify';
 import PaymentReceipt from './PaymentReceipt';
+import Select from 'react-select';
 
 const categoryOptions = [
   'Matrícula',
@@ -16,12 +17,6 @@ const typeOptions = [
   { value: 'income', label: 'Ingreso' },
   { value: 'expense', label: 'Gasto' },
 ];
-const statusOptions = [
-  { value: 'completed', label: 'Completado' },
-  { value: 'pending', label: 'Pendiente' },
-  { value: 'cancelled', label: 'Cancelado' },
-];
-
 // Definir calculateDiscountedAmount fuera del componente para evitar problemas de inicialización
 const calculateDiscountedAmount = (amount, discount) => {
   return amount - (amount * (discount / 100));
@@ -32,7 +27,7 @@ const PaymentManager = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterDate, setFilterDate] = useState(''); // Nuevo estado para filtro de fecha
   const [filterCategory, setFilterCategory] = useState(''); // Nuevo estado para filtro de categoría
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState(null);
@@ -48,6 +43,8 @@ const PaymentManager = () => {
   const [teachers, setTeachers] = useState([]);
   const [resumenEstudianteId, setResumenEstudianteId] = useState(null);
   const [discounts, setDiscounts] = useState({}); // Almacenar descuentos por estudiante
+  // Estado para búsqueda de estudiante en el modal
+  const [studentSearchTerm, setStudentSearchTerm] = useState('');
 
   // Estados para el modal de confirmación de eliminación
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -117,9 +114,9 @@ const PaymentManager = () => {
         (student.email || '').toLowerCase().includes(searchTerm.toLowerCase())
       ));
     const matchesType = filterType === 'all' || transaction.type === filterType;
-    const matchesStatus = filterStatus === 'all' || transaction.status === filterStatus;
+    const matchesDate = !filterDate || transaction.date === filterDate;
     const matchesCategory = !filterCategory || transaction.category === filterCategory;
-    return matchesSearch && matchesType && matchesStatus && matchesCategory;
+    return matchesSearch && matchesType && matchesDate && matchesCategory;
   });
 
   // 1. Validar que el selector de estudiante sea obligatorio para matrícula/pago de módulo, y el de profesor para pagos a profesor
@@ -420,12 +417,12 @@ const PaymentManager = () => {
             <option value="income">Ingresos</option>
             <option value="expense">Gastos</option>
           </select>
-          <select className="border rounded px-2 py-1 text-sm w-full sm:w-40" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-            <option value="all">Todos</option>
-            <option value="completed">Completados</option>
-            <option value="pending">Pendientes</option>
-            <option value="cancelled">Cancelados</option>
-          </select>
+          <input
+            type="date"
+            className="border rounded px-2 py-1 text-sm w-full sm:w-40"
+            value={filterDate}
+            onChange={e => setFilterDate(e.target.value)}
+          />
           <select className="border rounded px-2 py-1 text-sm w-full sm:w-40" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
             <option value="">Todas las categorías</option>
             {categoryOptions.concat('Pago a profesor').map(opt => (
@@ -555,17 +552,27 @@ const PaymentManager = () => {
               {showStudentSelect && (
                 <div>
                   <label className="block text-sm font-medium mb-1">Estudiante</label>
-                  <select
-                    className="w-full border rounded p-2"
-                    value={formData.studentId || ''}
-                    onChange={handleStudentSelect}
+                  <Select
+                    className="mb-2"
+                    options={students.map(student => ({
+                      value: student.id,
+                      label: student.name || student.fullName || student.email
+                    }))}
+                    value={students
+                      .filter(student => student.id === formData.studentId)
+                      .map(student => ({ value: student.id, label: student.name || student.fullName || student.email }))[0] || null}
+                    onChange={option => {
+                      const studentId = option ? option.value : '';
+                      setFormData({ ...formData, studentId });
+                      if (studentId && discounts[studentId] !== undefined) {
+                        setDiscounts(prev => ({ ...prev, [studentId]: discounts[studentId] }));
+                      }
+                    }}
+                    isClearable
+                    placeholder="Buscar y seleccionar estudiante..."
+                    isSearchable
                     required={studentSelectRequired}
-                  >
-                    <option value="">Selecciona un estudiante</option>
-                    {students.map(student => (
-                      <option key={student.id} value={student.id}>{student.name || student.fullName || student.email}</option>
-                    ))}
-                  </select>
+                  />
                 </div>
               )}
               {/* Campo de descuento solo si es matrícula o si es pago de módulo y el estudiante tiene descuento */}
@@ -607,7 +614,9 @@ const PaymentManager = () => {
               <div>
                 <label className="block text-sm font-medium mb-1">Estado</label>
                 <select className="w-full border rounded p-2" value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })}>
-                  {statusOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                  <option value="completed">Completado</option>
+                  <option value="pending">Pendiente</option>
+                  <option value="cancelled">Cancelado</option>
                 </select>
               </div>
               <div className="flex gap-2 pt-4">
@@ -624,7 +633,7 @@ const PaymentManager = () => {
       {/* Modal de resumen de pagos de módulo */}
       {resumenEstudianteId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-          <div className="bg-white rounded-lg shadow-lg p-8 max-w-lg w-full relative border-t-4 border-blue-600">
+          <div className="bg-white rounded-lg shadow-lg p-8 max-w-lg w-full relative border-t-4 border-blue-600 max-h-[80vh] overflow-y-auto">
             <button className="absolute top-2 right-2 text-gray-500 hover:text-gray-700" onClick={() => setResumenEstudianteId(null)}>&times;</button>
             <h3 className="text-xl font-bold mb-4 text-blue-700">Resumen de pagos de módulo</h3>
             <p className="mb-2 font-semibold">Estudiante: {(() => { const s = students.find(st => st.id === resumenEstudianteId); return s ? (s.name || s.fullName || s.email) : 'Desconocido'; })()}</p>

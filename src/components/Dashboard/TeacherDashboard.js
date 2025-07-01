@@ -7,6 +7,9 @@ import { IdCard, Book, Calendar, GoldMedal, User, People } from '@icon-park/reac
 import Modal from 'react-modal';
 import PaymentReceipt from '../Finance/PaymentReceipt';
 
+// NUEVO: Para seminarios
+import { toast } from 'react-toastify';
+
 const TeacherDashboard = () => {
   const { currentUser } = useContext(AuthContext);
   const [teacherInfo, setTeacherInfo] = useState(null);
@@ -26,6 +29,12 @@ const TeacherDashboard = () => {
   const [pagoParaRecibo, setPagoParaRecibo] = useState(null);
   const [reciboNumero, setReciboNumero] = useState('');
   const printAreaRef = useState(null);
+
+  // NUEVO: Seminarios asignados al profesor
+  const [seminariosAsignados, setSeminariosAsignados] = useState([]); // [{seminario, carreraId, carreraNombre}]
+  const [estudiantesPorSeminario, setEstudiantesPorSeminario] = useState({}); // {seminarioId: [estudiantes]}
+  const [showSeminarioModal, setShowSeminarioModal] = useState(false);
+  const [selectedSeminario, setSelectedSeminario] = useState(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -122,6 +131,71 @@ const TeacherDashboard = () => {
 
     fetchData();
   }, [currentUser]);
+
+  // NUEVO: Buscar seminarios asignados al profesor y estudiantes de esos seminarios
+  useEffect(() => {
+    const fetchSeminariosYEstudiantes = async () => {
+      if (!currentUser) return;
+      // Buscar carreras
+      const careersSnap = await getDocs(collection(db, 'careers'));
+      let seminarios = [];
+      for (const careerDoc of careersSnap.docs) {
+        const carrera = careerDoc.data();
+        const carreraId = careerDoc.id;
+        (carrera.seminarios || []).forEach((sem, idx) => {
+          // Coincidencia por email de profesor
+          const profEmail = (sem.profesorEmail || '').trim().toLowerCase();
+          const userEmail = (currentUser.email || '').trim().toLowerCase();
+          if (profEmail && profEmail === userEmail) {
+            seminarios.push({ ...sem, id: `seminario${idx+1}`, carreraId, carreraNombre: carrera.nombre });
+          }
+        });
+      }
+      setSeminariosAsignados(seminarios);
+      // Buscar estudiantes de cada seminario
+      const studentsSnap = await getDocs(collection(db, 'students'));
+      const estudiantes = studentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      let estPorSem = {};
+      seminarios.forEach(sem => {
+        estPorSem[sem.id] = estudiantes.filter(est =>
+          est.career === sem.carreraNombre &&
+          Array.isArray(est.seminarios) &&
+          est.seminarios.some(s => s.id === sem.id)
+        );
+      });
+      setEstudiantesPorSeminario(estPorSem);
+    };
+    fetchSeminariosYEstudiantes();
+  }, [currentUser]);
+
+  // Cambiar estado de seminario para un estudiante
+  const updateSeminarioStatus = async (studentId, seminarioId, newStatus) => {
+    try {
+      const studentRef = doc(db, 'students', studentId);
+      const studentDoc = await getDoc(studentRef);
+      if (studentDoc.exists()) {
+        const studentData = studentDoc.data();
+        const updatedSeminarios = (studentData.seminarios || []).map(sem =>
+          sem.id === seminarioId ? { ...sem, estado: newStatus } : sem
+        );
+        await updateDoc(studentRef, { seminarios: updatedSeminarios });
+        setEstudiantesPorSeminario(prev => {
+          const nuevo = { ...prev };
+          if (nuevo[seminarioId]) {
+            nuevo[seminarioId] = nuevo[seminarioId].map(est =>
+              est.id === studentId
+                ? { ...est, seminarios: updatedSeminarios }
+                : est
+            );
+          }
+          return nuevo;
+        });
+        toast.success('Estado actualizado');
+      }
+    } catch (error) {
+      toast.error('Error al actualizar estado');
+    }
+  };
 
   useEffect(() => {
     const fetchPagos = async () => {
@@ -226,7 +300,18 @@ const TeacherDashboard = () => {
             <Calendar theme="outline" size="32" className="mb-2 text-[#ff9800]" />
             <div className="text-lg font-bold text-[#23408e] mb-1 text-center">Módulo Actual</div>
             <div className="text-base font-semibold text-[#ff9800] text-center">
-              {modulosAsignados.find(mod => mod.estado === 'cursando')?.nombre || 'Sin módulo cursando'}
+              {(() => {
+                // Buscar el primer módulo en estado cursando
+                const cursando = modulosAsignados.find(mod => mod.estado === 'cursando');
+                if (cursando) return cursando.nombre;
+                // Si no hay, buscar el último módulo que haya tenido estado cursando
+                const ultimosCursando = [...modulosAsignados].reverse().find(mod => mod.estado === 'cursando');
+                if (ultimosCursando) return ultimosCursando.nombre;
+                // Si no hay ninguno en cursando, buscar el último aprobado
+                const ultimoAprobado = [...modulosAsignados].reverse().find(mod => mod.estado === 'aprobado');
+                if (ultimoAprobado) return ultimoAprobado.nombre;
+                return 'Sin módulo cursando';
+              })()}
             </div>
             <div className="text-xs text-gray-600 text-center">4 sábados por módulo</div>
           </div>
@@ -260,42 +345,131 @@ const TeacherDashboard = () => {
             Módulos Asignados
           </h2>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {modulosAsignados.map((modulo) => (
-              <div
-                key={modulo.id}
-                className={`border rounded-lg p-4 transition-colors ${{
+            {modulosAsignados.map((modulo) => {
+              // Calcular el estado real del módulo según los estudiantes asignados
+              const estudiantesModulo = estudiantes.filter(est => est.modulosAsignados?.some(m => m.id === modulo.id));
+              const estados = estudiantesModulo.map(est => {
+                const modEst = est.modulosAsignados.find(m => m.id === modulo.id);
+                return modEst?.estado || 'pendiente';
+              });
+              let estadoModulo = 'pendiente';
+              if (estados.length > 0) {
+                if (estados.every(e => e === 'aprobado')) {
+                  estadoModulo = 'aprobado';
+                } else if (estados.every(e => e === 'cursando')) {
+                  estadoModulo = 'cursando';
+                } else if (estados.some(e => e === 'pendiente')) {
+                  estadoModulo = 'pendiente';
+                } else if (estados.some(e => e === 'cursando')) {
+                  estadoModulo = 'cursando';
+                }
+              }
+              const colorBg = {
+                aprobado: 'bg-green-100 border-green-300',
+                cursando: 'bg-blue-100 border-blue-300',
+                pendiente: 'bg-gray-100 border-gray-300',
+              }[estadoModulo];
+              const colorBadge = {
+                aprobado: 'bg-green-200 text-green-800',
+                cursando: 'bg-blue-200 text-blue-800',
+                pendiente: 'bg-gray-200 text-gray-800',
+              }[estadoModulo];
+              return (
+                <div
+                  key={modulo.id}
+                  className={`border rounded-lg p-4 transition-colors ${colorBg}`}
+                >
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <h3 className="font-bold text-lg text-[#23408e]">{modulo.nombre}</h3>
+                      <p className="text-sm text-[#009245] font-semibold">Carrera: {modulo.carrera}</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setSelectedModule(modulo);
+                        setShowStudentsModal(true);
+                      }}
+                      className="px-3 py-1 bg-[#23408e] text-white rounded-full text-sm hover:bg-[#009245] transition-colors"
+                    >
+                      Ver Estudiantes
+                    </button>
+                  </div>
+                  <div className="text-sm text-gray-600 mt-2">
+                    <div>Semestre: {modulo.semestre}</div>
+                    <div>Cantidad de sábados: {modulo.sabadosSemana || 0}</div>
+                    <div className={`mt-2 px-2 py-1 rounded-full text-xs font-semibold text-center ${colorBadge}`}>{estadoModulo.charAt(0).toUpperCase() + estadoModulo.slice(1)}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* NUEVO: Seminarios Asignados */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
+          <h2 className="text-xl font-bold mb-4 text-green-700 flex items-center gap-2">
+            <Book theme="outline" size="22" className="text-green-700" />
+            Seminarios Asignados
+          </h2>
+          {seminariosAsignados.length === 0 ? (
+            <div className="text-gray-400">No tienes seminarios asignados.</div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {seminariosAsignados.map((sem) => {
+                const estudiantesSem = estudiantesPorSeminario[sem.id] || [];
+                let estadoSeminario = 'pendiente';
+                const estados = estudiantesSem.map(est => {
+                  const semEst = (est.seminarios || []).find(s => s.id === sem.id);
+                  return semEst?.estado || 'pendiente';
+                });
+                if (estados.length > 0) {
+                  if (estados.every(e => e === 'aprobado')) {
+                    estadoSeminario = 'aprobado';
+                  } else if (estados.every(e => e === 'cursando')) {
+                    estadoSeminario = 'cursando';
+                  } else if (estados.some(e => e === 'pendiente')) {
+                    estadoSeminario = 'pendiente';
+                  } else if (estados.some(e => e === 'cursando')) {
+                    estadoSeminario = 'cursando';
+                  }
+                }
+                const colorBg = {
                   aprobado: 'bg-green-100 border-green-300',
                   cursando: 'bg-blue-100 border-blue-300',
                   pendiente: 'bg-gray-100 border-gray-300',
-                }[modulo.estado || 'pendiente']}`}
-              >
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <h3 className="font-bold text-lg text-[#23408e]">{modulo.nombre}</h3>
-                    <p className="text-sm text-[#009245] font-semibold">Carrera: {modulo.carrera}</p>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setSelectedModule(modulo);
-                      setShowStudentsModal(true);
-                    }}
-                    className="px-3 py-1 bg-[#23408e] text-white rounded-full text-sm hover:bg-[#009245] transition-colors"
+                }[estadoSeminario];
+                const colorBadge = {
+                  aprobado: 'bg-green-200 text-green-800',
+                  cursando: 'bg-blue-200 text-blue-800',
+                  pendiente: 'bg-gray-200 text-gray-800',
+                }[estadoSeminario];
+                return (
+                  <div
+                    key={sem.id}
+                    className={`border rounded-lg p-4 transition-colors ${colorBg}`}
                   >
-                    Ver Estudiantes
-                  </button>
-                </div>
-                <div className="text-sm text-gray-600 mt-2">
-                  <div>Semestre: {modulo.semestre}</div>
-                  <div>Cantidad de sábados: {modulo.sabadosSemana || 0}</div>
-                  <div className={`mt-2 px-2 py-1 rounded-full text-xs font-semibold text-center ${{
-                    aprobado: 'bg-green-200 text-green-800',
-                    cursando: 'bg-blue-200 text-blue-800',
-                    pendiente: 'bg-gray-200 text-gray-800',
-                  }[modulo.estado || 'pendiente']}`}>{modulo.estado || 'Pendiente'}</div>
-                </div>
-              </div>
-            ))}
-          </div>
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <h3 className="font-bold text-lg text-green-700">{sem.nombre}</h3>
+                        <p className="text-sm text-[#009245] font-semibold">Carrera: {sem.carreraNombre}</p>
+                        <div className="text-xs text-gray-600">Semestre: {sem.semestre} | Horas: {sem.horas}</div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setSelectedSeminario(sem);
+                          setShowSeminarioModal(true);
+                        }}
+                        className="px-3 py-1 bg-green-700 text-white rounded-full text-sm hover:bg-green-900 transition-colors"
+                      >
+                        Ver Estudiantes
+                      </button>
+                    </div>
+                    <div className={`mt-2 px-2 py-1 rounded-full text-xs font-semibold text-center ${colorBadge}`}>{estadoSeminario.charAt(0).toUpperCase() + estadoSeminario.slice(1)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Modal de Estudiantes */}
@@ -303,7 +477,7 @@ const TeacherDashboard = () => {
           <Modal
             isOpen={showStudentsModal}
             onRequestClose={() => setShowStudentsModal(false)}
-            className="modal-center max-w-4xl w-full bg-white rounded-lg shadow-lg p-8 border-t-4 border-[#23408e] animate-fadeIn"
+            className="modal-center max-w-6xl w-full bg-white rounded-lg shadow-lg p-8 border-t-4 border-[#23408e] animate-fadeIn"
             overlayClassName="overlay-center bg-black bg-opacity-40"
           >
             <div className="flex justify-between items-start mb-6">
@@ -319,35 +493,51 @@ const TeacherDashboard = () => {
               </button>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="min-w-full border rounded-lg">
+            <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+              <table className="min-w-full border rounded-lg text-sm">
                 <thead>
                   <tr className="bg-[#e3eafc]">
-                    <th className="px-4 py-2 text-left text-[#23408e] font-semibold">Estudiante</th>
+                    <th className="px-4 py-2 text-left text-[#23408e] font-semibold">Nombre</th>
                     <th className="px-4 py-2 text-left text-[#23408e] font-semibold">Email</th>
+                    <th className="px-4 py-2 text-left text-[#23408e] font-semibold">Teléfono</th>
+                    <th className="px-4 py-2 text-center text-[#23408e] font-semibold">Semestre</th>
                     <th className="px-4 py-2 text-center text-[#23408e] font-semibold">Estado</th>
                     <th className="px-4 py-2 text-center text-[#23408e] font-semibold">Acciones</th>
+                    <th className="px-4 py-2 text-center text-[#23408e] font-semibold">&nbsp;</th>
                   </tr>
                 </thead>
                 <tbody>
                   {estudiantes
                     .filter(est => est.modulosAsignados?.some(m => m.id === selectedModule.id))
-                    .map(estudiante => (
-                      <tr key={estudiante.id} className="border-b hover:bg-gray-50">
-                        <td className="px-4 py-3">
-                          <div className="font-semibold text-[#23408e]">{estudiante.name} {estudiante.lastName}</div>
-                        </td>
-                        <td className="px-4 py-3 text-gray-600">{estudiante.email}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex justify-center">
+                    .map((estudiante, idx) => {
+                      const modEst = estudiante.modulosAsignados.find(m => m.id === selectedModule.id);
+                      const estado = modEst?.estado || 'pendiente';
+                      let estadoColor = '';
+                      switch (estado) {
+                        case 'aprobado':
+                          estadoColor = 'bg-green-100 text-green-800 border-green-300';
+                          break;
+                        case 'cursando':
+                          estadoColor = 'bg-blue-100 text-blue-800 border-blue-300';
+                          break;
+                        case 'pendiente':
+                        default:
+                          estadoColor = 'bg-gray-100 text-gray-700 border-gray-300';
+                      }
+                      return (
+                        <tr key={estudiante.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-blue-50'}>
+                          <td className="px-4 py-3 font-semibold text-[#23408e] whitespace-nowrap">{estudiante.name} {estudiante.lastName}</td>
+                          <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{estudiante.email}</td>
+                          <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{estudiante.phone || '-'}</td>
+                          <td className="px-4 py-3 text-center">{estudiante.semester || '-'}</td>
+                          <td className="px-4 py-3 text-center">
+                            <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold border ${estadoColor}`}>{estado.charAt(0).toUpperCase() + estado.slice(1)}</span>
+                          </td>
+                          <td className="px-4 py-3 text-center">
                             <select
-                              className={`px-2 py-1 rounded-full text-xs font-semibold border ${{
-                                aprobado: 'bg-green-100 text-green-800 border-green-300',
-                                cursando: 'bg-blue-100 text-blue-800 border-blue-300',
-                                pendiente: 'bg-gray-100 text-gray-800 border-gray-300',
-                              }[estudiante.modulosAsignados?.find(m => m.id === selectedModule.id)?.estado || 'pendiente']}`}
-                              value={estudiante.modulosAsignados?.find(m => m.id === selectedModule.id)?.estado || 'pendiente'}
-                              onChange={(e) =>
+                              className={`px-2 py-1 rounded-full text-xs font-semibold border ${estadoColor}`}
+                              value={estado}
+                              onChange={e =>
                                 updateModuleStatus(
                                   estudiante.id,
                                   selectedModule.id,
@@ -359,26 +549,26 @@ const TeacherDashboard = () => {
                               <option value="cursando">Cursando</option>
                               <option value="aprobado">Aprobado</option>
                             </select>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex justify-center gap-2">
-                            <Link
-                              to={`/dashboard/grades?student=${estudiante.id}&module=${selectedModule.id}`}
-                              className="px-3 py-1 bg-[#23408e] text-white rounded-full text-xs hover:bg-blue-700 transition-colors"
-                            >
-                              Calificar
-                            </Link>
-                            <Link
-                              to={`/dashboard/attendance?student=${estudiante.id}&module=${selectedModule.id}`}
-                              className="px-3 py-1 bg-[#009245] text-white rounded-full text-xs hover:bg-green-700 transition-colors"
-                            >
-                              Asistencia
-                            </Link>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <div className="flex justify-center gap-2">
+                              <Link
+                                to={`/dashboard/grades?student=${estudiante.id}&module=${selectedModule.id}`}
+                                className="px-3 py-1 bg-[#23408e] text-white rounded-full text-xs hover:bg-blue-700 transition-colors"
+                              >
+                                Calificar
+                              </Link>
+                              <Link
+                                to={`/dashboard/attendance?student=${estudiante.id}&module=${selectedModule.id}`}
+                                className="px-3 py-1 bg-[#009245] text-white rounded-full text-xs hover:bg-green-700 transition-colors"
+                              >
+                                Asistencia
+                              </Link>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
             </div>
@@ -386,6 +576,98 @@ const TeacherDashboard = () => {
             <div className="flex justify-end mt-6">
               <button
                 onClick={() => setShowStudentsModal(false)}
+                className="px-6 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-semibold"
+              >
+                Cerrar
+              </button>
+            </div>
+          </Modal>
+        )}
+
+        {/* NUEVO: Modal de Estudiantes de Seminario */}
+        {showSeminarioModal && selectedSeminario && (
+          <Modal
+            isOpen={showSeminarioModal}
+            onRequestClose={() => setShowSeminarioModal(false)}
+            className="modal-center max-w-4xl w-full bg-white rounded-lg shadow-lg p-8 border-t-4 border-green-700 animate-fadeIn"
+            overlayClassName="overlay-center bg-black bg-opacity-40"
+          >
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-green-700">{selectedSeminario.nombre}</h2>
+                <p className="text-[#009245] font-semibold">Carrera: {selectedSeminario.carreraNombre}</p>
+                <div className="text-xs text-gray-600">Semestre: {selectedSeminario.semestre} | Horas: {selectedSeminario.horas}</div>
+              </div>
+              <button
+                onClick={() => setShowSeminarioModal(false)}
+                className="text-gray-400 hover:text-gray-600 text-2xl font-bold"
+              >
+                &times;
+              </button>
+            </div>
+            <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+              <table className="min-w-full border rounded-lg text-sm">
+                <thead>
+                  <tr className="bg-green-100">
+                    <th className="px-4 py-2 text-left text-green-700 font-semibold">Nombre</th>
+                    <th className="px-4 py-2 text-left text-green-700 font-semibold">Email</th>
+                    <th className="px-4 py-2 text-left text-green-700 font-semibold">Teléfono</th>
+                    <th className="px-4 py-2 text-center text-green-700 font-semibold">Semestre</th>
+                    <th className="px-4 py-2 text-center text-green-700 font-semibold">Estado</th>
+                    <th className="px-4 py-2 text-center text-green-700 font-semibold">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(estudiantesPorSeminario[selectedSeminario.id] || []).map((estudiante, idx) => {
+                    const semEst = (estudiante.seminarios || []).find(s => s.id === selectedSeminario.id);
+                    const estado = semEst?.estado || 'pendiente';
+                    let estadoColor = '';
+                    switch (estado) {
+                      case 'aprobado':
+                        estadoColor = 'bg-green-100 text-green-800 border-green-300';
+                        break;
+                      case 'cursando':
+                        estadoColor = 'bg-blue-100 text-blue-800 border-blue-300';
+                        break;
+                      case 'pendiente':
+                      default:
+                        estadoColor = 'bg-gray-100 text-gray-700 border-gray-300';
+                    }
+                    return (
+                      <tr key={estudiante.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-green-50'}>
+                        <td className="px-4 py-3 font-semibold text-green-900 whitespace-nowrap">{estudiante.name} {estudiante.lastName}</td>
+                        <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{estudiante.email}</td>
+                        <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{estudiante.phone || '-'}</td>
+                        <td className="px-4 py-3 text-center">{estudiante.semester || '-'}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold border ${estadoColor}`}>{estado.charAt(0).toUpperCase() + estado.slice(1)}</span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <select
+                            className={`px-2 py-1 rounded-full text-xs font-semibold border ${estadoColor}`}
+                            value={estado}
+                            onChange={e =>
+                              updateSeminarioStatus(
+                                estudiante.id,
+                                selectedSeminario.id,
+                                e.target.value
+                              )
+                            }
+                          >
+                            <option value="pendiente">Pendiente</option>
+                            <option value="cursando">Cursando</option>
+                            <option value="aprobado">Aprobado</option>
+                          </select>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={() => setShowSeminarioModal(false)}
                 className="px-6 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-semibold"
               >
                 Cerrar

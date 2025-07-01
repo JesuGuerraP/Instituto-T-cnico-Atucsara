@@ -32,6 +32,8 @@ const AttendanceManager = () => {
   const [month, setMonth] = useState(new Date().getMonth());
   // Estructura: attendance[studentId][dateStr] = true/false
   const [attendance, setAttendance] = useState({});
+  // Estado para mostrar sábados del mes siguiente
+  const [showNextMonthSaturdays, setShowNextMonthSaturdays] = useState(false);
   const [loading, setLoading] = useState(true);
   const [careers, setCareers] = useState([]);
   const [selectedCareer, setSelectedCareer] = useState('');
@@ -46,6 +48,10 @@ const AttendanceManager = () => {
   const [careerModules, setCareerModules] = useState([]);
   const [modulesForCareer, setModulesForCareer] = useState([]);
   const [editStudentId, setEditStudentId] = useState(null); // Nuevo: para saber si se está editando un estudiante
+  // Filtro de módulo para la tabla principal
+  const [filterModule, setFilterModule] = useState('');
+  // Lista global de módulos para el filtro
+  const [allModuleNames, setAllModuleNames] = useState([]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -181,6 +187,26 @@ const AttendanceManager = () => {
   }, [students, year, month, selectedModule]);
 
   // Cargar registros de asistencia para la carrera seleccionada o todos
+  // Cargar todos los módulos posibles para el filtro
+  useEffect(() => {
+    const fetchAllModules = async () => {
+      const attSnap = await getDocs(collection(db, 'attendance'));
+      const modulesMap = new Map();
+      attSnap.forEach(docu => {
+        const data = docu.data();
+        // Solo módulos con al menos una fecha de asistencia
+        if (data.moduleName && data.attendance && Object.keys(data.attendance).length > 0) {
+          const normalized = data.moduleName.trim().toLowerCase();
+          if (!modulesMap.has(normalized)) {
+            modulesMap.set(normalized, data.moduleName.trim());
+          }
+        }
+      });
+      setAllModuleNames(Array.from(modulesMap.values()));
+    };
+    fetchAllModules();
+  }, []);
+
   useEffect(() => {
     const fetchAttendanceRecords = async () => {
       setLoading(true);
@@ -195,20 +221,34 @@ const AttendanceManager = () => {
         studentsSnap.forEach(doc => studentsArr.push({ id: doc.id, ...doc.data() }));
       }
       setStudents(studentsArr);
-      // Traer todas las asistencias del mes y año (sin filtrar por carrera ni por teacher)
-      const attSnap = await getDocs(query(collection(db, 'attendance'), where('year', '==', year), where('month', '==', month)));
-      const attArr = [];
-      attSnap.forEach(docu => {
-        const data = docu.data();
-        attArr.push({ id: docu.id, ...data });
-      });
+      // Traer asistencias según filtro de módulo
+      let attArr = [];
+      if (filterModule) {
+        // Traer todas las asistencias de ese módulo (sin importar mes ni año)
+        const attSnap = await getDocs(query(collection(db, 'attendance'), where('moduleName', '==', filterModule)));
+        attSnap.forEach(docu => {
+          const data = docu.data();
+          attArr.push({ id: docu.id, ...data });
+        });
+      } else {
+        // Traer todos los documentos de asistencia y filtrar por mes/año en frontend
+        const attSnap = await getDocs(collection(db, 'attendance'));
+        attSnap.forEach(docu => {
+          const data = docu.data();
+          attArr.push({ id: docu.id, ...data });
+        });
+      }
       setAttendanceRecords(attArr);
       setLoading(false);
     };
     fetchAttendanceRecords();
-  }, [selectedCareer, year, month, showModal, currentUser]);
+  }, [selectedCareer, year, month, showModal, currentUser, filterModule]);
 
   const saturdays = getSaturdays(year, month);
+  // Sábados del mes siguiente
+  const nextMonth = month === 11 ? 0 : month + 1;
+  const nextMonthYear = month === 11 ? year + 1 : year;
+  const nextMonthSaturdays = getSaturdays(nextMonthYear, nextMonth);
 
   const handleAttendanceChange = (studentId, dateStr, value) => {
     setAttendance(prev => ({
@@ -229,15 +269,36 @@ const AttendanceManager = () => {
       // Guardar solo la asistencia de los estudiantes que tengan algún valor marcado (asistió/no asistió en al menos una fecha)
       const studentsWithAttendance = students.filter(student => attendance[student.id] && Object.keys(attendance[student.id]).length > 0);
       for (const student of studentsWithAttendance) {
-        await setDoc(doc(db, 'attendance', `${student.id}_${year}_${month}_${moduleName}`), {
-          studentId: student.id,
-          moduleName,
-          year,
-          month,
-          attendance: attendance[student.id] || {},
-          updatedBy: currentUser.uid,
-          updatedAt: new Date().toISOString(),
-        });
+        // Leer asistencia previa (si existe)
+        const docRef = doc(db, 'attendance', `${student.id}_${moduleName}`);
+        let prevAttendance = {};
+        try {
+          const prevDoc = await getDocs(query(collection(db, 'attendance'), where('studentId', '==', student.id), where('moduleName', '==', moduleName)));
+          prevDoc.forEach(d => {
+            if (d.id === `${student.id}_${moduleName}` && d.data().attendance) {
+              prevAttendance = d.data().attendance;
+            }
+          });
+        } catch (e) {}
+        // Solo guardar si hay cambios reales
+        let hasChanges = false;
+        const mergedAttendance = { ...prevAttendance };
+        for (const [dateStr, value] of Object.entries(attendance[student.id])) {
+          if (prevAttendance[dateStr] !== value) {
+            hasChanges = true;
+            mergedAttendance[dateStr] = value;
+          }
+        }
+        // Si hay cambios, guardar
+        if (hasChanges) {
+          await setDoc(docRef, {
+            studentId: student.id,
+            moduleName,
+            attendance: mergedAttendance,
+            updatedBy: currentUser.uid,
+            updatedAt: new Date().toISOString(),
+          });
+        }
       }
       toast.success('Asistencia guardada correctamente');
     } catch (e) {
@@ -365,12 +426,10 @@ const AttendanceManager = () => {
       // Buscar el módulo seleccionado por nombre
       const mod = modulesForCareer.find(m => m.nombre === moduleName);
       if (!mod) return;
-      // Traer asistencias previas de todos los estudiantes para ese módulo, mes y año
+      // Traer asistencias previas de todos los estudiantes para ese módulo (todas las fechas)
       (async () => {
         const attSnap = await getDocs(query(
           collection(db, 'attendance'),
-          where('year', '==', year),
-          where('month', '==', month),
           where('moduleName', '==', moduleName)
         ));
         const attData = {};
@@ -387,7 +446,7 @@ const AttendanceManager = () => {
     if (showModal && !editStudentId && !moduleName) {
       setAttendance({});
     }
-  }, [showModal, moduleName, year, month, modulesForCareer, editStudentId]);
+  }, [showModal, moduleName, modulesForCareer, editStudentId]);
 
   return (
     <div className="max-w-5xl mx-auto p-2 sm:p-6 bg-white rounded-lg shadow border border-gray-100 mt-6">
@@ -412,7 +471,7 @@ const AttendanceManager = () => {
         </button>
       </div>
       {/* Filtros */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 mb-6">
         <div>
           <label className="block text-sm font-semibold mb-1 text-[#23408e]">Carrera</label>
           <select className="w-full border border-[#23408e] rounded px-2 py-2 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-sm" value={selectedCareer} onChange={e => setSelectedCareer(e.target.value)}>
@@ -421,13 +480,22 @@ const AttendanceManager = () => {
         </div>
         <div>
           <label className="block text-sm font-semibold mb-1 text-[#23408e]">Mes</label>
-          <select className="w-full border border-[#23408e] rounded px-2 py-2 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-sm" value={month} onChange={e => setMonth(Number(e.target.value))}>
+          <select className="w-full border border-[#23408e] rounded px-2 py-2 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-sm" value={month} onChange={e => setMonth(Number(e.target.value))} disabled={!!filterModule}>
             {months.map((m, idx) => <option key={m} value={idx}>{m}</option>)}
           </select>
         </div>
         <div>
           <label className="block text-sm font-semibold mb-1 text-[#23408e]">Año</label>
-          <input type="number" className="w-full border border-[#23408e] rounded px-2 py-2 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-sm" value={year} onChange={e => setYear(Number(e.target.value))} min={2020} max={2100} />
+          <input type="number" className="w-full border border-[#23408e] rounded px-2 py-2 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-sm" value={year} onChange={e => setYear(Number(e.target.value))} min={2020} max={2100} disabled={!!filterModule} />
+        </div>
+        <div>
+          <label className="block text-sm font-semibold mb-1 text-[#23408e]">Filtrar por módulo</label>
+          <select className="w-full border border-[#23408e] rounded px-2 py-2 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-sm" value={filterModule} onChange={e => setFilterModule(e.target.value)}>
+            <option value="">Todos</option>
+            {allModuleNames.map(m => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
         </div>
       </div>
       {/* Tabla de información de asistencia */}
@@ -446,8 +514,73 @@ const AttendanceManager = () => {
           </thead>
           <tbody>
             {students.map(student => {
-              // Mostrar una fila por cada módulo diferente del estudiante en el mes y año seleccionados
-              const records = attendanceRecords.filter(r => r.studentId === student.id && (selectedCareer === 'Todos' || student.career === selectedCareer) && r.month === month && r.year === year);
+              // Filtrado de registros según filtro de módulo
+              let records;
+              if (filterModule) {
+                // Agrupar y fusionar por estudiante y módulo
+                const filtered = attendanceRecords.filter(r => r.studentId === student.id && r.moduleName === filterModule);
+                if (filtered.length === 0) return (
+                  <tr key={student.id} className="border-b hover:bg-[#f0f6ff]">
+                    <td className="px-4 py-2 font-semibold whitespace-nowrap text-[#23408e]">{student.name} {student.lastName}</td>
+                    <td className="px-4 py-2 text-center text-gray-400" colSpan={6}>Sin registro de asistencia</td>
+                  </tr>
+                );
+                // Fusionar todas las asistencias de ese estudiante y módulo
+                let mergedAttendance = {};
+                let lastUpdated = null;
+                let lastUpdatedBy = null;
+                filtered.forEach(r => {
+                  if (r.attendance) mergedAttendance = { ...mergedAttendance, ...r.attendance };
+                  if (!lastUpdated || (r.updatedAt && r.updatedAt > lastUpdated)) {
+                    lastUpdated = r.updatedAt;
+                    lastUpdatedBy = r.updatedBy;
+                  }
+                });
+                // Si no hay ninguna fecha, no mostrar
+                if (Object.keys(mergedAttendance).length === 0) return null;
+                // Renderizar una sola fila
+                let totalSab = 0;
+                let asistidos = 0;
+                Object.entries(mergedAttendance).forEach(([dateStr, val]) => {
+                  totalSab++;
+                  if (val === true) asistidos++;
+                });
+                return (
+                  <tr key={student.id + '_' + filterModule} className="border-b hover:bg-[#f0f6ff]">
+                    <td className="px-4 py-2 font-semibold whitespace-nowrap text-[#23408e]">{student.name} {student.lastName}</td>
+                    <td className="px-4 py-2 text-center text-[#009245] font-semibold">{filterModule}</td>
+                    <td className="px-4 py-2 text-center">{totalSab}</td>
+                    <td className="px-4 py-2 text-center">
+                      <span className="inline-block px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 mr-2">{asistidos} Asistió</span>
+                      <span className="inline-block px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">{totalSab - asistidos} No asistió</span>
+                    </td>
+                    <td className="px-4 py-2 text-center text-xs text-gray-700">{
+                      (() => {
+                        const user = users.find(u => u.id === lastUpdatedBy);
+                        return user ? `${user.name || ''} ${user.lastName || ''}`.trim() : lastUpdatedBy;
+                      })()
+                    }</td>
+                    <td className="px-4 py-2 text-center text-xs text-gray-500">{lastUpdated ? new Date(lastUpdated).toLocaleString('es-CO') : '-'}</td>
+                    <td className="px-4 py-2 text-center flex gap-2 justify-center">
+                      <button
+                        className="border rounded px-2 py-1 text-[#23408e] hover:bg-gray-50 text-xs font-semibold"
+                        onClick={() => { setDetailRecord({ ...filtered[0], student, attendance: mergedAttendance, updatedAt: lastUpdated, updatedBy: lastUpdatedBy }); setShowDetailModal(true); }}
+                      >Ver</button>
+                      <button
+                        className="border rounded px-2 py-1 text-[#009245] hover:bg-blue-50 text-xs font-semibold"
+                        onClick={() => handleUpdateClick(filtered[0], student)}
+                      >Actualizar</button>
+                      <button
+                        className="border rounded px-2 py-1 text-red-600 hover:bg-red-100 text-xs font-semibold"
+                        onClick={() => { setDeleteRecord(filtered[0]); setShowDeleteModal(true); }}
+                      >Eliminar</button>
+                    </td>
+                  </tr>
+                );
+              } else {
+                // Agrupar por estudiante y módulo (sin importar mes/año)
+                records = attendanceRecords.filter(r => r.studentId === student.id && (selectedCareer === 'Todos' || student.career === selectedCareer));
+              }
               if (records.length === 0) {
                 return (
                   <tr key={student.id} className="border-b hover:bg-[#f0f6ff]">
@@ -458,16 +591,18 @@ const AttendanceManager = () => {
               }
               // Una fila por cada módulo
               return records.map((rec, idx) => {
-                // Sumar solo las asistencias y sábados del mes y año seleccionados
+                // Sumar asistencias y sábados SOLO del mes/año filtrado si no hay filtro de módulo
                 let totalSab = 0;
                 let asistidos = 0;
                 Object.entries(rec.attendance || {}).forEach(([dateStr, val]) => {
                   const dateObj = new Date(dateStr);
-                  if (dateObj.getMonth() === month && dateObj.getFullYear() === year) {
+                  if (filterModule || (dateObj.getMonth() === month && dateObj.getFullYear() === year)) {
                     totalSab++;
                     if (val === true) asistidos++;
                   }
                 });
+                // Si no hay ningún sábado para este mes/año, no mostrar la fila
+                if (!filterModule && totalSab === 0) return null;
                 return (
                   <tr key={rec.id} className="border-b hover:bg-[#f0f6ff]">
                     <td className="px-4 py-2 font-semibold whitespace-nowrap text-[#23408e]">{student.name} {student.lastName}</td>
@@ -567,9 +702,39 @@ const AttendanceManager = () => {
             <thead>
               <tr className="bg-[#23408e] text-white">
                 <th className="px-4 py-3 text-left font-semibold">Estudiante</th>
-                {saturdays.map(date => (
-                  <th key={date.toISOString()} className="px-4 py-3 text-center font-semibold">
+                {saturdays.map((date, idx) => {
+                  const isLast = idx === saturdays.length - 1;
+                  return (
+                    <th key={date.toISOString()} className="px-4 py-3 text-center font-semibold relative">
+                      {date.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
+                      {isLast && (
+                        <button
+                          type="button"
+                          title="Agregar sábados del mes siguiente"
+                          onClick={() => setShowNextMonthSaturdays(true)}
+                          style={{ position: 'absolute', right: '-18px', top: '50%', transform: 'translateY(-50%)', display: showNextMonthSaturdays ? 'none' : 'block' }}
+                          className="ml-2 bg-[#009245] hover:bg-[#23408e] text-white rounded-full w-7 h-7 flex items-center justify-center shadow border border-white"
+                        >
+                          <span style={{ fontSize: 22, lineHeight: 1 }}>+</span>
+                        </button>
+                      )}
+                    </th>
+                  );
+                })}
+                {showNextMonthSaturdays && nextMonthSaturdays.map((date, idx) => (
+                  <th key={date.toISOString()} className="px-4 py-3 text-center font-semibold bg-[#e6f9ed] text-[#009245] relative">
                     {date.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
+                    {idx === 0 && (
+                      <button
+                        type="button"
+                        title="Quitar sábados del mes siguiente"
+                        onClick={() => setShowNextMonthSaturdays(false)}
+                        style={{ position: 'absolute', left: '-18px', top: '50%', transform: 'translateY(-50%)' }}
+                        className="mr-2 bg-[#d32f2f] hover:bg-[#23408e] text-white rounded-full w-7 h-7 flex items-center justify-center shadow border border-white"
+                      >
+                        <span style={{ fontSize: 22, lineHeight: 1 }}>-</span>
+                      </button>
+                    )}
                   </th>
                 ))}
               </tr>
@@ -584,6 +749,70 @@ const AttendanceManager = () => {
                     const currentValue = attendance[student.id]?.[dateStr];
                     return (
                       <td key={dateStr} className="px-4 py-3 text-center">
+                        <div className="flex items-center justify-center gap-3">
+                          {/* Checkbox Asistió */}
+                          <label className="inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={currentValue === true}
+                              onChange={() => {
+                                if (!isEditable) return;
+                                if (currentValue === true) {
+                                  setAttendance(prev => {
+                                    const copy = { ...prev };
+                                    if (copy[student.id]) {
+                                      copy[student.id] = { ...copy[student.id] };
+                                      delete copy[student.id][dateStr];
+                                      if (Object.keys(copy[student.id]).length === 0) delete copy[student.id];
+                                    }
+                                    return copy;
+                                  });
+                                } else {
+                                  handleAttendanceChange(student.id, dateStr, true);
+                                }
+                              }}
+                              className="accent-[#009245] w-6 h-6 rounded-lg border-2 border-[#009245] shadow-sm"
+                              disabled={!isEditable}
+                            />
+                            <span className="ml-2 text-green-700 font-semibold text-sm">Asistió</span>
+                          </label>
+                          {/* Checkbox No asistió */}
+                          <label className="inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={currentValue === false}
+                              onChange={() => {
+                                if (!isEditable) return;
+                                if (currentValue === false) {
+                                  setAttendance(prev => {
+                                    const copy = { ...prev };
+                                    if (copy[student.id]) {
+                                      copy[student.id] = { ...copy[student.id] };
+                                      delete copy[student.id][dateStr];
+                                      if (Object.keys(copy[student.id]).length === 0) delete copy[student.id];
+                                    }
+                                    return copy;
+                                  });
+                                } else {
+                                  handleAttendanceChange(student.id, dateStr, false);
+                                }
+                              }}
+                              className="accent-[#d32f2f] w-6 h-6 rounded-lg border-2 border-[#d32f2f] shadow-sm"
+                              disabled={!isEditable}
+                            />
+                            <span className="ml-2 text-red-600 font-semibold text-sm">No asistió</span>
+                          </label>
+                        </div>
+                      </td>
+                    );
+                  })}
+                  {/* Sábados del mes siguiente si showNextMonthSaturdays está activo */}
+                  {showNextMonthSaturdays && nextMonthSaturdays.map(date => {
+                    const dateStr = date.toISOString().slice(0, 10);
+                    const isEditable = !selectedStudent || student.id === selectedStudent;
+                    const currentValue = attendance[student.id]?.[dateStr];
+                    return (
+                      <td key={dateStr} className="px-4 py-3 text-center bg-[#e6f9ed]">
                         <div className="flex items-center justify-center gap-3">
                           {/* Checkbox Asistió */}
                           <label className="inline-flex items-center cursor-pointer">

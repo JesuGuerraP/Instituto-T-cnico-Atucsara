@@ -17,6 +17,7 @@ import AdminDashboard from './components/Dashboard/AdminDashboard';
 import StudentDashboard from './components/Dashboard/StudentDashboard';
 import TeacherDashboard from './components/Dashboard/TeacherDashboard';
 import StudentForm from './components/Students/StudentForm';
+import StudentSettings from './components/Dashboard/StudentSettings';
 import StudentsTable from './components/Students/StudentsTable';
 import TeachersTable from './components/Teachers/TeachersTable';
 import TeacherForm from './components/Teachers/TeacherForm';
@@ -88,6 +89,11 @@ function App() {
               currentUser?.role === 'student' ? <StudentDashboard /> : 
               currentUser?.role === 'teacher' ? <TeacherDashboard /> : 
               <AdminDashboard />
+            } />
+            <Route path="settings" element={
+              <ProtectedRoute roles={['student']}>
+                <StudentSettings />
+              </ProtectedRoute>
             } />
             <Route path="students" element={
               <ProtectedRoute roles={['admin', 'secretary']}>
