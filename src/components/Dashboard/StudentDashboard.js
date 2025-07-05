@@ -4,8 +4,9 @@ import { getAuth, updatePassword } from 'firebase/auth';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { AuthContext } from '../../context/AuthContext';
 import Modal from 'react-modal';
-import { IdCard, Book, Calendar, Wallet, GoldMedal } from '@icon-park/react';
+import { IdCard, Book, Calendar, Wallet, GoldMedal, Printer } from '@icon-park/react';
 import PaymentReceipt from '../Finance/PaymentReceipt'; // Asegúrate de que la ruta sea correcta
+import GradeReport from '../Grades/GradeReport';
 
 const StudentDashboard = () => {
   const { currentUser } = useContext(AuthContext);
@@ -179,12 +180,13 @@ const StudentDashboard = () => {
   if (studentInfo && Array.isArray(studentInfo.modulosAsignados)) {
     // Buscar todos los módulos en estado cursando
     const cursandoArr = studentInfo.modulosAsignados.filter(m => m.estado === 'cursando');
+    let moduloCursandoConAsistencia = null;
+    let porcentajeCursando = null;
     if (cursandoArr.length > 0) {
-      // Si hay más de uno, buscar el de mayor porcentaje de asistencia
+      // Buscar el módulo cursando con mayor porcentaje de asistencia (pero que tenga asistencia)
       let mejorModulo = null;
       let mejorPorcentaje = null;
       cursandoArr.forEach(modAsignado => {
-        // Sumar todas las asistencias de todos los registros de ese módulo para el estudiante
         const registros = studentAttendance.filter(rec => (rec.moduleId === modAsignado.id || rec.moduleName === modAsignado.nombre || rec.moduleName === (careerModules.find(cm => cm.id === modAsignado.id)?.nombre)));
         let total = 0;
         let asistidos = 0;
@@ -194,20 +196,28 @@ const StudentDashboard = () => {
             if (val === true) asistidos++;
           });
         });
-        let porcentaje = total > 0 ? Math.round((asistidos / total) * 100) : 0;
-        let nombreModulo = registros.length > 0 ? registros[0].moduleName : (careerModules.find(cm => cm.id === modAsignado.id)?.nombre || 'Módulo');
-        if (mejorModulo === null || porcentaje > mejorPorcentaje) {
-          mejorModulo = nombreModulo;
-          mejorPorcentaje = porcentaje;
+        if (total > 0) {
+          let porcentaje = Math.round((asistidos / total) * 100);
+          let nombreModulo = registros.length > 0 ? registros[0].moduleName : (careerModules.find(cm => cm.id === modAsignado.id)?.nombre || 'Módulo');
+          if (mejorModulo === null || porcentaje > mejorPorcentaje) {
+            mejorModulo = nombreModulo;
+            mejorPorcentaje = porcentaje;
+          }
         }
       });
-      moduloResumenNombre = mejorModulo;
-      porcentajeResumen = mejorPorcentaje;
+      if (mejorModulo !== null) {
+        moduloCursandoConAsistencia = mejorModulo;
+        porcentajeCursando = mejorPorcentaje;
+      }
+    }
+    if (moduloCursandoConAsistencia !== null) {
+      moduloResumenNombre = moduloCursandoConAsistencia;
+      porcentajeResumen = porcentajeCursando;
     } else {
-      // Buscar el último aprobado (por orden de aparición en modulosAsignados)
-      const aprobados = studentInfo.modulosAsignados.filter(m => m.estado === 'aprobado');
-      if (aprobados.length > 0) {
-        const moduloAsignado = aprobados[aprobados.length - 1];
+      // Buscar el último aprobado (por orden de aparición en modulosAsignados) que tenga asistencia
+      const aprobados = [...studentInfo.modulosAsignados].filter(m => m.estado === 'aprobado').reverse();
+      let encontrado = false;
+      for (const moduloAsignado of aprobados) {
         const registros = studentAttendance.filter(rec => (rec.moduleId === moduloAsignado.id || rec.moduleName === moduloAsignado.nombre || rec.moduleName === (careerModules.find(cm => cm.id === moduloAsignado.id)?.nombre)));
         let total = 0;
         let asistidos = 0;
@@ -217,14 +227,19 @@ const StudentDashboard = () => {
             if (val === true) asistidos++;
           });
         });
-        if (registros.length > 0) {
+        if (registros.length > 0 && total > 0) {
           moduloResumenNombre = registros[0].moduleName;
-          porcentajeResumen = total > 0 ? Math.round((asistidos / total) * 100) : 0;
-        } else {
-          const moduloObj = careerModules.find(cm => cm.id === moduloAsignado.id);
-          moduloResumenNombre = moduloObj ? moduloObj.nombre : 'Módulo';
-          porcentajeResumen = 0;
+          porcentajeResumen = Math.round((asistidos / total) * 100);
+          encontrado = true;
+          break;
         }
+      }
+      if (!encontrado && aprobados.length > 0) {
+        // Si no hay ninguno con asistencia, mostrar el último aprobado aunque no tenga asistencia
+        const moduloAsignado = aprobados[0];
+        const moduloObj = careerModules.find(cm => cm.id === moduloAsignado.id);
+        moduloResumenNombre = moduloObj ? moduloObj.nombre : 'Módulo';
+        porcentajeResumen = 0;
       }
     }
   }
@@ -275,6 +290,18 @@ const StudentDashboard = () => {
   const [modulosNotasVisibles, setModulosNotasVisibles] = useState({});
   const toggleNotasModulo = (modulo) => {
     setModulosNotasVisibles(prev => ({ ...prev, [modulo]: !prev[modulo] }));
+  };
+
+  // Estado y handlers para modal de informe de notas
+  const [showGradeReportModal, setShowGradeReportModal] = useState(false);
+  const [selectedModuleForReport, setSelectedModuleForReport] = useState(null);
+  const handleOpenGradeReport = (modulo) => {
+    setSelectedModuleForReport(modulo);
+    setShowGradeReportModal(true);
+  };
+  const handleCloseGradeReport = () => {
+    setShowGradeReportModal(false);
+    setSelectedModuleForReport(null);
   };
 
   if (loading) return <div className="p-8">Cargando tu panel...</div>;
@@ -373,19 +400,30 @@ const StudentDashboard = () => {
             </div>
             {/* Promedios finales por módulo y botón para ver notas */}
             {Object.keys(notasPorModulo).length > 0 ? (
-              <div className="mb-4 space-y-2">
+              <div className="mb-4 space-y-4">
                 {Object.entries(notasPorModulo).map(([modulo, notas]) => (
-                  <div key={modulo} className="flex flex-col md:flex-row md:items-center md:gap-4 border-b pb-2 mb-2">
-                    <div className="flex-1 flex items-center gap-2">
-                      <span className="font-bold text-[#23408e] text-base">{modulo}:</span>
-                      <span className="inline-block px-3 py-1 rounded-lg bg-[#e3fcec] text-[#23408e] font-bold text-lg shadow border border-[#009245]">{calcularPromedioFinal(notas)}</span>
+                  <div key={modulo} className="bg-gray-50 rounded-xl p-3 flex flex-col gap-2 shadow-sm border border-gray-200">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4 gap-1">
+                      <div className="flex-1 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                        <span className="font-bold text-[#23408e] text-base">{modulo}</span>
+                        <span className="inline-block px-3 py-1 rounded-lg bg-[#e3fcec] text-[#23408e] font-bold text-lg shadow border border-[#009245]">{calcularPromedioFinal(notas)}</span>
+                      </div>
+                      <div className="flex flex-row gap-2 mt-2 sm:mt-0">
+                        <button
+                          className="px-3 py-1 rounded-full font-semibold shadow-sm border border-[#2563eb] text-[#2563eb] bg-white hover:bg-[#2563eb] hover:text-white text-xs md:text-sm transition"
+                          onClick={() => toggleNotasModulo(modulo)}
+                        >
+                          {modulosNotasVisibles[modulo] ? 'Ver menos' : 'Ver notas'}
+                        </button>
+                        <button
+                          className="px-2 py-1 rounded-full font-semibold shadow-sm border border-[#ffd600] text-[#ffd600] bg-white hover:bg-[#ffd600] hover:text-white text-xs md:text-sm transition flex items-center"
+                          title="Imprimir informe de notas"
+                          onClick={() => handleOpenGradeReport(modulo)}
+                        >
+                          <Printer theme="outline" size="18" className="mr-1" />
+                        </button>
+                      </div>
                     </div>
-                    <button
-                      className="ml-2 px-3 py-1 rounded-full font-semibold shadow-sm border border-[#2563eb] text-[#2563eb] bg-white hover:bg-[#2563eb] hover:text-white text-xs md:text-sm transition"
-                      onClick={() => toggleNotasModulo(modulo)}
-                    >
-                      {modulosNotasVisibles[modulo] ? 'Ver menos' : 'Ver notas'}
-                    </button>
                   </div>
                 ))}
               </div>
@@ -396,7 +434,7 @@ const StudentDashboard = () => {
             <div className="space-y-8 mt-4">
               {Object.entries(notasPorModuloYGrupo).map(([modulo, grupos]) => (
                 modulosNotasVisibles[modulo] && (
-                  <div key={modulo} className="border rounded-xl p-3 bg-gray-50">
+                  <div key={modulo} className="border rounded-xl p-3 bg-white shadow-sm">
                     <div className="font-bold text-[#23408e] mb-2">{modulo}</div>
                     <div className="overflow-x-auto">
                       <table className="min-w-full border text-xs md:text-sm">
@@ -774,11 +812,38 @@ const StudentDashboard = () => {
           </div>
         </div>
       )}
-    {/* Configuración de cuenta (visible para estudiantes) */}
-      <div className="mt-12">
-        <StudentSettings />
+        {/* Modal de informe de notas por módulo */}
+        {showGradeReportModal && selectedModuleForReport && (
+          <Modal
+            isOpen={showGradeReportModal}
+            onRequestClose={handleCloseGradeReport}
+            contentLabel="Informe de Notas"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40"
+            overlayClassName=""
+            shouldCloseOnOverlayClick={true}
+          >
+            <div className="max-w-3xl w-full mx-auto bg-white rounded-lg shadow-lg border-t-4 border-[#009245] animate-fadeIn relative flex flex-col max-h-[90vh] overflow-y-auto p-2 md:p-8">
+              <button
+                className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-2xl font-bold print:hidden"
+                onClick={handleCloseGradeReport}
+                aria-label="Cerrar"
+              >
+                &times;
+              </button>
+              <GradeReport
+                grades={grades.filter(g => g.moduleName === selectedModuleForReport && g.studentId === studentInfo?.id)}
+                onClose={handleCloseGradeReport}
+              />
+              <div className="flex justify-end mt-6 print:hidden">
+                <button
+                  onClick={handleCloseGradeReport}
+                  className="px-6 py-2 bg-[#009245] text-white rounded-md hover:bg-[#23408e] font-semibold"
+                >Cerrar</button>
+              </div>
+            </div>
+          </Modal>
+        )}
       </div>
-    </div>
   );
 };
 

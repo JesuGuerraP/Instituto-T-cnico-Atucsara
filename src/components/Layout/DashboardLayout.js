@@ -22,7 +22,10 @@ const DashboardLayout = () => {
     }
   };
 
-  const openModal = () => setIsModalOpen(true);
+  const openModal = () => {
+    setSidebarOpen(false); // Cierra el sidebar si está abierto
+    setIsModalOpen(true);
+  };
   const closeModal = () => setIsModalOpen(false);
 
   // Colores principales del logo: azul (#23408e), verde (#009245), amarillo (#ffd600)
@@ -35,6 +38,13 @@ const DashboardLayout = () => {
 
   return (
     <div className="flex h-screen bg-gray-50">
+      {/* Overlay para cerrar sidebar en móvil */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-30 z-20 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
       {/* Sidebar */}
       <div className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:relative inset-y-0 left-0 transform w-64 ${sidebarBg} ${sidebarBorder} shadow-lg transition duration-200 ease-in-out z-30 flex flex-col`}>
         {/* Logo */}
