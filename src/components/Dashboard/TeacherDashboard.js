@@ -130,6 +130,10 @@ const TeacherDashboard = () => {
     };
 
     fetchData();
+
+    // Listener para recargar datos cuando la ventana vuelve a tener foco
+    window.addEventListener('focus', fetchData);
+    return () => window.removeEventListener('focus', fetchData);
   }, [currentUser]);
 
   // NUEVO: Buscar seminarios asignados al profesor y estudiantes de esos seminarios
