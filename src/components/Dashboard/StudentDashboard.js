@@ -774,8 +774,14 @@ const StudentDashboard = () => {
           </div>
         </div>
       )}
+    {/* Configuración de cuenta (visible para estudiantes) */}
+      <div className="mt-12">
+        <StudentSettings />
+      </div>
     </div>
   );
 };
+
+import StudentSettings from './StudentSettings';
 
 export default StudentDashboard;
