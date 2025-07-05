@@ -32,6 +32,14 @@ const AttendanceManager = () => {
   const [month, setMonth] = useState(new Date().getMonth());
   // Estructura: attendance[studentId][dateStr] = true/false
   const [attendance, setAttendance] = useState({});
+  
+  // Utilidad para obtener fecha local en formato YYYY-MM-DD
+  function toLocalDateString(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+  }
   // Estado para mostrar sábados del mes siguiente
   const [showNextMonthSaturdays, setShowNextMonthSaturdays] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -289,15 +297,26 @@ const AttendanceManager = () => {
             mergedAttendance[dateStr] = value;
           }
         }
-        // Si hay cambios, guardar
+        // Eliminar fechas que ya no están en attendance[student.id]
+        for (const dateStr of Object.keys(prevAttendance)) {
+          if (!(dateStr in attendance[student.id])) {
+            hasChanges = true;
+            delete mergedAttendance[dateStr];
+          }
+        }
+        // Si no queda ninguna asistencia, eliminar el documento
         if (hasChanges) {
-          await setDoc(docRef, {
-            studentId: student.id,
-            moduleName,
-            attendance: mergedAttendance,
-            updatedBy: currentUser.uid,
-            updatedAt: new Date().toISOString(),
-          });
+          if (Object.keys(mergedAttendance).length === 0) {
+            await deleteDoc(docRef);
+          } else {
+            await setDoc(docRef, {
+              studentId: student.id,
+              moduleName,
+              attendance: mergedAttendance,
+              updatedBy: currentUser.uid,
+              updatedAt: new Date().toISOString(),
+            });
+          }
         }
       }
       toast.success('Asistencia guardada correctamente');
@@ -398,8 +417,17 @@ const AttendanceManager = () => {
     setShowModal(true);
     setModuleName(rec.moduleName);
     setSelectedModule(rec.moduleId || '');
-    setMonth(rec.month);
-    setYear(rec.year);
+    // Si existen los campos mes y año en el registro, usarlos; si no, intentar inferirlos de las fechas de asistencia
+    if (typeof rec.month === 'number' && typeof rec.year === 'number') {
+      setMonth(rec.month);
+      setYear(rec.year);
+    } else if (rec.attendance && Object.keys(rec.attendance).length > 0) {
+      // Tomar la primera fecha de asistencia
+      const firstDate = Object.keys(rec.attendance)[0];
+      const [y, m] = firstDate.split('-');
+      setYear(Number(y));
+      setMonth(Number(m) - 1);
+    }
     setSelectedCareer(student.career);
     setSelectedStudent(student.id);
     setAttendance(prev => ({ ...prev, [student.id]: rec.attendance || {} }));
@@ -463,6 +491,10 @@ const AttendanceManager = () => {
             setSelectedStudent('');
             setEditStudentId(null);
             setAttendance({}); // Limpiar todas las asistencias al abrir el modal
+            // Establecer mes y año actual
+            const now = new Date();
+            setMonth(now.getMonth());
+            setYear(now.getFullYear());
           }}
           className="bg-[#009245] hover:bg-[#23408e] text-white font-semibold px-4 py-2 rounded shadow flex items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0"
         >
@@ -479,22 +511,18 @@ const AttendanceManager = () => {
           </select>
         </div>
         <div>
-          <label className="block text-sm font-semibold mb-1 text-[#23408e]">Mes</label>
-          <select className="w-full border border-[#23408e] rounded px-2 py-2 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-sm" value={month} onChange={e => setMonth(Number(e.target.value))} disabled={!!filterModule}>
-            {months.map((m, idx) => <option key={m} value={idx}>{m}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-semibold mb-1 text-[#23408e]">Año</label>
-          <input type="number" className="w-full border border-[#23408e] rounded px-2 py-2 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-sm" value={year} onChange={e => setYear(Number(e.target.value))} min={2020} max={2100} disabled={!!filterModule} />
-        </div>
-        <div>
           <label className="block text-sm font-semibold mb-1 text-[#23408e]">Filtrar por módulo</label>
           <select className="w-full border border-[#23408e] rounded px-2 py-2 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-sm" value={filterModule} onChange={e => setFilterModule(e.target.value)}>
             <option value="">Todos</option>
-            {allModuleNames.map(m => (
-              <option key={m} value={m}>{m}</option>
-            ))}
+            {(
+              selectedCareer && selectedCareer !== 'Todos' && careerModules.length > 0
+                ? careerModules.map(m => (
+                    <option key={m.nombre} value={m.nombre}>{m.nombre}</option>
+                  ))
+                : allModuleNames.map(m => (
+                    <option key={m} value={m}>{m}</option>
+                  ))
+            )}
           </select>
         </div>
       </div>
@@ -503,8 +531,9 @@ const AttendanceManager = () => {
         <table className="min-w-[700px] w-full border rounded-lg text-xs sm:text-base">
           <thead>
             <tr className="bg-[#23408e] text-white">
-              <th className="px-4 py-2 text-left font-semibold">Estudiante</th>
+              <th className="px-4 py-2 text-left font-semibold">Carrera</th>
               <th className="px-4 py-2 text-center font-semibold">Módulo</th>
+              <th className="px-4 py-2 text-center font-semibold">Estudiante</th>
               <th className="px-4 py-2 text-center font-semibold">Sábados</th>
               <th className="px-4 py-2 text-center font-semibold">Asistencias</th>
               <th className="px-4 py-2 text-center font-semibold">Registrado por</th>
@@ -513,130 +542,69 @@ const AttendanceManager = () => {
             </tr>
           </thead>
           <tbody>
-            {students.map(student => {
-              // Filtrado de registros según filtro de módulo
-              let records;
-              if (filterModule) {
-                // Agrupar y fusionar por estudiante y módulo
-                const filtered = attendanceRecords.filter(r => r.studentId === student.id && r.moduleName === filterModule);
-                if (filtered.length === 0) return (
-                  <tr key={student.id} className="border-b hover:bg-[#f0f6ff]">
-                    <td className="px-4 py-2 font-semibold whitespace-nowrap text-[#23408e]">{student.name} {student.lastName}</td>
-                    <td className="px-4 py-2 text-center text-gray-400" colSpan={6}>Sin registro de asistencia</td>
-                  </tr>
-                );
-                // Fusionar todas las asistencias de ese estudiante y módulo
-                let mergedAttendance = {};
-                let lastUpdated = null;
-                let lastUpdatedBy = null;
-                filtered.forEach(r => {
-                  if (r.attendance) mergedAttendance = { ...mergedAttendance, ...r.attendance };
-                  if (!lastUpdated || (r.updatedAt && r.updatedAt > lastUpdated)) {
-                    lastUpdated = r.updatedAt;
-                    lastUpdatedBy = r.updatedBy;
-                  }
-                });
-                // Si no hay ninguna fecha, no mostrar
-                if (Object.keys(mergedAttendance).length === 0) return null;
-                // Renderizar una sola fila
-                let totalSab = 0;
-                let asistidos = 0;
-                Object.entries(mergedAttendance).forEach(([dateStr, val]) => {
-                  totalSab++;
-                  if (val === true) asistidos++;
-                });
-                return (
-                  <tr key={student.id + '_' + filterModule} className="border-b hover:bg-[#f0f6ff]">
-                    <td className="px-4 py-2 font-semibold whitespace-nowrap text-[#23408e]">{student.name} {student.lastName}</td>
-                    <td className="px-4 py-2 text-center text-[#009245] font-semibold">{filterModule}</td>
-                    <td className="px-4 py-2 text-center">{totalSab}</td>
-                    <td className="px-4 py-2 text-center">
-                      <span className="inline-block px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 mr-2">{asistidos} Asistió</span>
-                      <span className="inline-block px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">{totalSab - asistidos} No asistió</span>
-                    </td>
-                    <td className="px-4 py-2 text-center text-xs text-gray-700">{
-                      (() => {
-                        const user = users.find(u => u.id === lastUpdatedBy);
-                        return user ? `${user.name || ''} ${user.lastName || ''}`.trim() : lastUpdatedBy;
-                      })()
-                    }</td>
-                    <td className="px-4 py-2 text-center text-xs text-gray-500">{lastUpdated ? new Date(lastUpdated).toLocaleString('es-CO') : '-'}</td>
-                    <td className="px-4 py-2 text-center flex gap-2 justify-center">
-                      <button
-                        className="border rounded px-2 py-1 text-[#23408e] hover:bg-gray-50 text-xs font-semibold"
-                        onClick={() => { setDetailRecord({ ...filtered[0], student, attendance: mergedAttendance, updatedAt: lastUpdated, updatedBy: lastUpdatedBy }); setShowDetailModal(true); }}
-                      >Ver</button>
-                      <button
-                        className="border rounded px-2 py-1 text-[#009245] hover:bg-blue-50 text-xs font-semibold"
-                        onClick={() => handleUpdateClick(filtered[0], student)}
-                      >Actualizar</button>
-                      <button
-                        className="border rounded px-2 py-1 text-red-600 hover:bg-red-100 text-xs font-semibold"
-                        onClick={() => { setDeleteRecord(filtered[0]); setShowDeleteModal(true); }}
-                      >Eliminar</button>
-                    </td>
-                  </tr>
-                );
-              } else {
-                // Agrupar por estudiante y módulo (sin importar mes/año)
-                records = attendanceRecords.filter(r => r.studentId === student.id && (selectedCareer === 'Todos' || student.career === selectedCareer));
-              }
-              if (records.length === 0) {
-                return (
-                  <tr key={student.id} className="border-b hover:bg-[#f0f6ff]">
-                    <td className="px-4 py-2 font-semibold whitespace-nowrap text-[#23408e]">{student.name} {student.lastName}</td>
-                    <td className="px-4 py-2 text-center text-gray-400" colSpan={6}>Sin registro de asistencia</td>
-                  </tr>
-                );
-              }
-              // Una fila por cada módulo
-              return records.map((rec, idx) => {
-                // Sumar asistencias y sábados SOLO del mes/año filtrado si no hay filtro de módulo
-                let totalSab = 0;
-                let asistidos = 0;
-                Object.entries(rec.attendance || {}).forEach(([dateStr, val]) => {
-                  const dateObj = new Date(dateStr);
-                  if (filterModule || (dateObj.getMonth() === month && dateObj.getFullYear() === year)) {
-                    totalSab++;
-                    if (val === true) asistidos++;
-                  }
-                });
-                // Si no hay ningún sábado para este mes/año, no mostrar la fila
-                if (!filterModule && totalSab === 0) return null;
-                return (
-                  <tr key={rec.id} className="border-b hover:bg-[#f0f6ff]">
-                    <td className="px-4 py-2 font-semibold whitespace-nowrap text-[#23408e]">{student.name} {student.lastName}</td>
-                    <td className="px-4 py-2 text-center text-[#009245] font-semibold">{rec.moduleName}</td>
-                    <td className="px-4 py-2 text-center">{totalSab}</td>
-                    <td className="px-4 py-2 text-center">
-                      <span className="inline-block px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 mr-2">{asistidos} Asistió</span>
-                      <span className="inline-block px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">{totalSab - asistidos} No asistió</span>
-                    </td>
-                    <td className="px-4 py-2 text-center text-xs text-gray-700">{
-                      (() => {
-                        const user = users.find(u => u.id === rec.updatedBy);
-                        return user ? `${user.name || ''} ${user.lastName || ''}`.trim() : rec.updatedBy;
-                      })()
-                    }</td>
-                    <td className="px-4 py-2 text-center text-xs text-gray-500">{rec.updatedAt ? new Date(rec.updatedAt).toLocaleString('es-CO') : '-'}</td>
-                    <td className="px-4 py-2 text-center flex gap-2 justify-center">
-                      <button
-                        className="border rounded px-2 py-1 text-[#23408e] hover:bg-gray-50 text-xs font-semibold"
-                        onClick={() => { setDetailRecord({ ...rec, student }); setShowDetailModal(true); }}
-                      >Ver</button>
-                      <button
-                        className="border rounded px-2 py-1 text-[#009245] hover:bg-blue-50 text-xs font-semibold"
-                        onClick={() => handleUpdateClick(rec, student)}
-                      >Actualizar</button>
-                      <button
-                        className="border rounded px-2 py-1 text-red-600 hover:bg-red-100 text-xs font-semibold"
-                        onClick={() => { setDeleteRecord(rec); setShowDeleteModal(true); }}
-                      >Eliminar</button>
-                    </td>
-                  </tr>
-                );
+            {/* Agrupar por carrera y módulo */}
+            {(() => {
+              // Filtrar registros por módulo si está seleccionado
+              let filteredRecords = filterModule
+                ? attendanceRecords.filter(r => r.moduleName === filterModule)
+                : attendanceRecords;
+              // Agrupar por carrera, luego por módulo
+              const grouped = {};
+              filteredRecords.forEach(rec => {
+                const student = students.find(s => s.id === rec.studentId);
+                if (!student) return;
+                const career = student.career || 'Sin carrera';
+                if (!grouped[career]) grouped[career] = {};
+                if (!grouped[career][rec.moduleName]) grouped[career][rec.moduleName] = [];
+                grouped[career][rec.moduleName].push({ ...rec, student });
               });
-            })}
+              // Renderizar agrupado
+              return Object.entries(grouped).map(([career, modules]) => (
+                Object.entries(modules).map(([modName, records]) => (
+                  records.map((rec, idx) => {
+                    let totalSab = 0;
+                    let asistidos = 0;
+                    Object.entries(rec.attendance || {}).forEach(([dateStr, val]) => {
+                      totalSab++;
+                      if (val === true) asistidos++;
+                    });
+                    return (
+                      <tr key={rec.id} className="border-b hover:bg-[#f0f6ff]">
+                        <td className="px-4 py-2 font-semibold whitespace-nowrap text-[#23408e]">{career}</td>
+                        <td className="px-4 py-2 text-center text-[#009245] font-semibold">{modName}</td>
+                        <td className="px-4 py-2 font-semibold whitespace-nowrap text-[#23408e]">{rec.student.name} {rec.student.lastName}</td>
+                        <td className="px-4 py-2 text-center">{totalSab}</td>
+                        <td className="px-4 py-2 text-center">
+                          <span className="inline-block px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 mr-2">{asistidos} Asistió</span>
+                          <span className="inline-block px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">{totalSab - asistidos} No asistió</span>
+                        </td>
+                        <td className="px-4 py-2 text-center text-xs text-gray-700">{
+                          (() => {
+                            const user = users.find(u => u.id === rec.updatedBy);
+                            return user ? `${user.name || ''} ${user.lastName || ''}`.trim() : rec.updatedBy;
+                          })()
+                        }</td>
+                        <td className="px-4 py-2 text-center text-xs text-gray-500">{rec.updatedAt ? new Date(rec.updatedAt).toLocaleString('es-CO') : '-'}</td>
+                        <td className="px-4 py-2 text-center flex gap-2 justify-center">
+                          <button
+                            className="border rounded px-2 py-1 text-[#23408e] hover:bg-gray-50 text-xs font-semibold"
+                            onClick={() => { setDetailRecord({ ...rec, student: rec.student }); setShowDetailModal(true); }}
+                          >Ver</button>
+                          <button
+                            className="border rounded px-2 py-1 text-[#009245] hover:bg-blue-50 text-xs font-semibold"
+                            onClick={() => handleUpdateClick(rec, rec.student)}
+                          >Actualizar</button>
+                          <button
+                            className="border rounded px-2 py-1 text-red-600 hover:bg-red-100 text-xs font-semibold"
+                            onClick={() => { setDeleteRecord(rec); setShowDeleteModal(true); }}
+                          >Eliminar</button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ))
+              ));
+            })()}
           </tbody>
         </table>
       </div>
@@ -705,8 +673,8 @@ const AttendanceManager = () => {
                 {saturdays.map((date, idx) => {
                   const isLast = idx === saturdays.length - 1;
                   return (
-                    <th key={date.toISOString()} className="px-4 py-3 text-center font-semibold relative">
-                      {date.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
+                    <th key={toLocalDateString(date)} className="px-4 py-3 text-center font-semibold relative">
+                    {date.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
                       {isLast && (
                         <button
                           type="button"
@@ -722,7 +690,7 @@ const AttendanceManager = () => {
                   );
                 })}
                 {showNextMonthSaturdays && nextMonthSaturdays.map((date, idx) => (
-                  <th key={date.toISOString()} className="px-4 py-3 text-center font-semibold bg-[#e6f9ed] text-[#009245] relative">
+                  <th key={toLocalDateString(date)} className="px-4 py-3 text-center font-semibold bg-[#e6f9ed] text-[#009245] relative">
                     {date.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
                     {idx === 0 && (
                       <button
@@ -744,7 +712,7 @@ const AttendanceManager = () => {
                 <tr key={student.id} className="border-b hover:bg-[#f0f6ff]">
                   <td className="px-4 py-3 font-semibold whitespace-nowrap text-[#23408e] text-base">{student.name} {student.lastName}</td>
                   {saturdays.map(date => {
-                    const dateStr = date.toISOString().slice(0, 10);
+                    const dateStr = toLocalDateString(date);
                     const isEditable = !selectedStudent || student.id === selectedStudent;
                     const currentValue = attendance[student.id]?.[dateStr];
                     return (
@@ -808,7 +776,7 @@ const AttendanceManager = () => {
                   })}
                   {/* Sábados del mes siguiente si showNextMonthSaturdays está activo */}
                   {showNextMonthSaturdays && nextMonthSaturdays.map(date => {
-                    const dateStr = date.toISOString().slice(0, 10);
+                    const dateStr = toLocalDateString(date);
                     const isEditable = !selectedStudent || student.id === selectedStudent;
                     const currentValue = attendance[student.id]?.[dateStr];
                     return (
@@ -918,7 +886,12 @@ const AttendanceManager = () => {
               <tbody>
                 {Object.entries(detailRecord.attendance || {}).map(([date, val]) => (
                   <tr key={date} className="border-b">
-                    <td className="px-4 py-2 font-semibold text-[#23408e]">{new Date(date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                    <td className="px-4 py-2 font-semibold text-[#23408e]">{(() => {
+                      // date es string 'YYYY-MM-DD', parsear como local
+                      const [y, m, d] = date.split('-');
+                      const localDate = new Date(Number(y), Number(m) - 1, Number(d));
+                      return localDate.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
+                    })()}</td>
                     <td className="px-4 py-2 text-center">
                       {val === true ? (
                         <span className="inline-block px-3 py-1 rounded-full bg-green-100 text-green-700 font-semibold">Asistió</span>

@@ -91,7 +91,10 @@ function App() {
               <AdminDashboard />
             } />
             <Route path="settings" element={
-              <ProtectedRoute roles={['student']}>
+              <ProtectedRoute>
+                {/* Usar AccountSettings si existe, si no StudentSettings */}
+                {/* import AccountSettings from './components/Dashboard/AccountSettings'; */}
+                {/* <AccountSettings /> */}
                 <StudentSettings />
               </ProtectedRoute>
             } />
