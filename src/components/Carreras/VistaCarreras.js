@@ -464,7 +464,7 @@ const VistaCarreras = () => {
                         <div className="w-full">
                           <div className="font-bold text-xs sm:text-base text-blue-700 break-words">{m.nombre}</div>
                           <div className="text-xs sm:text-sm text-gray-500 mb-1 flex flex-col sm:flex-row gap-1 sm:gap-2">
-                            <span className="font-semibold text-green-600">Profesor:</span> {m.profesor || <span className='italic text-gray-400'>Sin asignar</span>} <span className="hidden sm:inline">|</span> <span className="font-semibold text-green-600">{m.sabadosSemana}</span> sábado/mes
+                            <span className="font-semibold text-green-600">Profesor:</span> {m.profesor || <span className='italic text-gray-400'>Sin asignar</span>} <span className="hidden sm:inline">|</span> <span className="font-semibold text-green-600">{m.sabadosSemana}</span> sábado(s)/mes
                           </div>
                           <div className="text-gray-400 text-xs sm:text-sm break-words">{m.descripcion}</div>
                         </div>
@@ -582,13 +582,14 @@ const VistaCarreras = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-blue-700 mb-1 font-semibold">Sábados por semana</label>
+                <label className="block text-blue-700 mb-1 font-semibold">Sábados por mes</label>
                 <input
                   type="number"
                   min={0}
                   className="w-full border border-green-500 rounded px-3 py-2 mb-2 text-xs sm:text-base focus:ring-2 focus:ring-blue-600"
                   value={formModulo.sabadosSemana}
                   onChange={e => setFormModulo({ ...formModulo, sabadosSemana: Number(e.target.value) })}
+                  placeholder="Cantidad de sábados por mes"
                 />
               </div>
               <div className="md:col-span-2">

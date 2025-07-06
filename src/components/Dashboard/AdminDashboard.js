@@ -21,23 +21,24 @@ const AdminDashboard = () => {
       try {
         const studentsSnapshot = await getDocs(query(collection(db, 'students')));
         const teachersSnapshot = await getDocs(query(collection(db, 'teachers')));
-        // Cambiar: contar carreras en vez de cursos
         const careersSnapshot = await getDocs(query(collection(db, 'careers')));
-        // const coursesSnapshot = await getDocs(query(collection(db, 'courses')));
-        // Obtener ingresos totales reales desde la colección de pagos
+        // Obtener balance real desde la colección de pagos (igual que PaymentManager.js)
         const paymentsSnapshot = await getDocs(collection(db, 'payments'));
         let totalIncome = 0;
+        let totalExpenses = 0;
         paymentsSnapshot.forEach(doc => {
           const data = doc.data();
-          if (data.type === 'income' && data.status === 'completed') {
-            totalIncome += Number(data.amount);
+          if (data.status === 'completed') {
+            if (data.type === 'income') totalIncome += Number(data.amount);
+            if (data.type === 'expense') totalExpenses += Number(data.amount);
           }
         });
+        const balance = totalIncome - totalExpenses;
         setStats({
           students: studentsSnapshot.size,
           teachers: teachersSnapshot.size,
-          courses: careersSnapshot.size, // Ahora muestra la cantidad de carreras
-          finances: totalIncome
+          courses: careersSnapshot.size,
+          finances: balance
         });
         setLoading(false);
       } catch (error) {
@@ -191,12 +192,12 @@ const AdminDashboard = () => {
               <span className="bg-[#fff3e0] p-2 rounded-full">
                 <ChartHistogram theme="filled" size="24" fill="#ff9800" />
               </span>
-              <span className="font-semibold text-[#ff9800]">Ingresos Mensuales</span>
+              <span className="font-semibold text-[#ff9800]">Balance General</span>
             </div>
             <div className="text-3xl font-bold text-[#ff9800]">
               {stats.finances.toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })}
             </div>
-            <div className="text-gray-500 text-sm">Ingresos del mes actual</div>
+            <div className="text-gray-500 text-sm">Diferencia entre ingresos y gastos</div>
           </div>
         </div>
 
