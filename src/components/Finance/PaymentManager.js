@@ -764,7 +764,7 @@ const PaymentManager = () => {
           />
           <select className="border rounded px-2 py-1 text-sm w-full sm:w-40" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
             <option value="">Todas las categorías</option>
-            {categoryOptions.concat('Pago a profesor').map(opt => (
+            {categoryOptions.concat(coursesCategoryOptions).concat('Pago a profesor').map(opt => (
               <option key={opt} value={opt}>{opt}</option>
             ))}
           </select>
