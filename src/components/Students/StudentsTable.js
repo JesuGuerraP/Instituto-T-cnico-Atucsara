@@ -15,6 +15,8 @@ const StudentsTable = () => {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [teachers, setTeachers] = useState([]);
   const [careerFilter, setCareerFilter] = useState('');
+  const [scopeFilter, setScopeFilter] = useState('');
+  const [courseFilter, setCourseFilter] = useState('');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState(null);
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -25,10 +27,13 @@ const StudentsTable = () => {
   const [modulesByCareer, setModulesByCareer] = useState([]);
   const [careersList, setCareersList] = useState([]);
   const [studentsByCareer, setStudentsByCareer] = useState([]);
+  const [coursesList, setCoursesList] = useState([]);
   const { currentUser } = useAuth();
   const [studentTab, setStudentTab] = useState('modulos');
   const [showModulosDetalle, setShowModulosDetalle] = useState(false);
   const [showSeminariosDetalle, setShowSeminariosDetalle] = useState(false);
+  const [showCursosDetalle, setShowCursosDetalle] = useState(false);
+  const [courseModulesInfo, setCourseModulesInfo] = useState([]); // [{courseId, courseName, modules: []}]
 
   useEffect(() => {
     const fetchStudents = async () => {
@@ -72,6 +77,37 @@ const StudentsTable = () => {
     };
     fetchCareers();
   }, []);
+
+  useEffect(() => {
+    const fetchCourses = async () => {
+      const coursesSnap = await getDocs(collection(db, 'courses'));
+      setCoursesList(coursesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    };
+    fetchCourses();
+  }, []);
+
+  // Cargar módulos de los cursos del estudiante seleccionado
+  useEffect(() => {
+    const loadCourseModules = async () => {
+      if (!selectedStudent || !Array.isArray(selectedStudent.courses) || selectedStudent.courses.length === 0) {
+        setCourseModulesInfo([]);
+        return;
+      }
+      const result = [];
+      for (const courseId of selectedStudent.courses) {
+        const course = coursesList.find(c => c.id === courseId);
+        try {
+          const snap = await getDocs(collection(db, 'courses', courseId, 'modules'));
+          const modules = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          result.push({ courseId, courseName: course?.nombre || 'Curso', modules });
+        } catch (e) {
+          result.push({ courseId, courseName: course?.nombre || 'Curso', modules: [] });
+        }
+      }
+      setCourseModulesInfo(result);
+    };
+    loadCourseModules();
+  }, [selectedStudent, coursesList]);
 
   useEffect(() => {
     // Filtrar estudiantes por carrera seleccionada
@@ -146,14 +182,25 @@ const StudentsTable = () => {
   // Obtener todas las carreras únicas para el filtro
   const careers = Array.from(new Set(students.map(s => s.career).filter(Boolean)));
 
-  const filteredStudents = students.filter(student =>
-    (
+  const filteredStudents = students.filter(student => {
+    const matchesText = (
       (student.name && student.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (student.lastName && student.lastName.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (student.dni && student.dni.includes(searchTerm))
-    ) &&
-    (careerFilter ? student.career === careerFilter : true)
-  );
+    );
+    const isCareer = !!student.career;
+    const isCourse = Array.isArray(student.courses) && student.courses.length > 0;
+
+    const matchesScope = scopeFilter
+      ? (scopeFilter === 'career' ? isCareer : (scopeFilter === 'course' ? isCourse : (isCareer || isCourse)))
+      : true;
+
+    const matchesCareerOrCourse = scopeFilter === 'course'
+      ? (courseFilter ? (Array.isArray(student.courses) && student.courses.includes(courseFilter)) : true)
+      : (careerFilter ? student.career === careerFilter : true);
+
+    return matchesText && matchesCareerOrCourse && matchesScope;
+  });
 
   const getTeacherName = (teacherId) => {
     const teacher = teachers.find(t => t.id === teacherId);
@@ -214,15 +261,39 @@ const StudentsTable = () => {
           />
         </div>
         <div className="w-full md:w-1/4">
+          {scopeFilter === 'course' ? (
+            <select
+              className="border rounded px-2 py-2 text-sm w-full"
+              value={courseFilter}
+              onChange={e => setCourseFilter(e.target.value)}
+            >
+              <option value="">Todos los cursos</option>
+              {coursesList.map(c => (
+                <option key={c.id} value={c.id}>{c.nombre}</option>
+              ))}
+            </select>
+          ) : (
+            <select
+              className="border rounded px-2 py-2 text-sm w-full"
+              value={careerFilter}
+              onChange={e => setCareerFilter(e.target.value)}
+            >
+              <option value="">Todas las carreras</option>
+              {careers.map(career => (
+                <option key={career} value={career}>{career}</option>
+              ))}
+            </select>
+          )}
+        </div>
+        <div className="w-full md:w-1/4">
           <select
             className="border rounded px-2 py-2 text-sm w-full"
-            value={careerFilter}
-            onChange={e => setCareerFilter(e.target.value)}
+            value={scopeFilter}
+            onChange={e => setScopeFilter(e.target.value)}
           >
-            <option value="">Todas las carreras</option>
-            {careers.map(career => (
-              <option key={career} value={career}>{career}</option>
-            ))}
+            <option value="">Todos los ámbitos</option>
+            <option value="career">Carrera</option>
+            <option value="course">Curso</option>
           </select>
         </div>
       </div>
@@ -245,9 +316,14 @@ const StudentsTable = () => {
                   <span><OutgoingMailIcon className="inline w-4 h-4 mr-1 text-[#23408e]" fontSize="small" />{student.email}</span>
                   {student.phone && <span><LocalPhoneIcon className="inline w-4 h-4 mr-1 text-[#23408e]" fontSize="small" />{student.phone}</span>}
                 </div>
-                <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Curso:</span> {student.career}</div>
-                {/* Mostrar semestre en la vista principal */}
-                <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Semestre:</span> {student.semester ? `Semestre ${student.semester}` : 'Sin asignar'}</div>
+                <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Carrera:</span> {student.career || '—'}</div>
+                {/* Mostrar semestre y/o período según corresponda */}
+                {student.career && (
+                  <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Semestre:</span> {student.semester ? `Semestre ${student.semester}` : 'Sin asignar'}</div>
+                )}
+                {(Array.isArray(student.courses) && student.courses.length > 0) && (
+                  <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Período (curso):</span> {student.coursePeriod || '—'}</div>
+                )}
               </div>
             </div>
             <div className="flex flex-col md:items-end gap-2 mt-4 md:mt-0">
@@ -327,9 +403,20 @@ const StudentsTable = () => {
               <div className="flex items-center gap-2 text-[#009245] text-base"><span className="font-semibold">Email:</span> <span className="text-gray-700">{selectedStudent.email}</span></div>
               <div className="flex items-center gap-2 text-[#009245] text-base"><span className="font-semibold">Teléfono:</span> <span className="text-gray-700">{selectedStudent.phone || 'No registrado'}</span></div>
               <div className="flex items-center gap-2 text-[#009245] text-base"><span className="font-semibold">Carrera:</span> <span className="text-gray-700">{selectedStudent.career}</span></div>
+              {Array.isArray(selectedStudent.courses) && selectedStudent.courses.length > 0 && (
+                <div className="flex items-center gap-2 text-[#009245] text-base">
+                  <span className="font-semibold">Cursos:</span>
+                  <span className="text-gray-700">
+                    {selectedStudent.courses
+                      .map(cid => coursesList.find(c => c.id === cid)?.nombre)
+                      .filter(Boolean)
+                      .join(', ') || '—'}
+                  </span>
+                </div>
+              )}
               <div className="flex items-center gap-2 text-[#009245] text-base"><span className="font-semibold">Estado:</span> <span className={selectedStudent.status === 'active' ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>{selectedStudent.status === 'active' ? 'Activo' : 'Inactivo'}</span></div>
             </div>
-            {/* NUEVO: Tabs Modulos/Seminarios */}
+            {/* NUEVO: Tabs Modulos/Seminarios/Cursos */}
             <div className="flex gap-4 mb-4">
               <button
                 className={`px-4 py-2 rounded font-bold border ${studentTab === 'modulos' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-700 border-blue-600'}`}
@@ -339,6 +426,12 @@ const StudentsTable = () => {
                 className={`px-4 py-2 rounded font-bold border ${studentTab === 'seminarios' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-green-700 border-green-600'}`}
                 onClick={() => setStudentTab('seminarios')}
               >Seminarios</button>
+              {Array.isArray(selectedStudent.courses) && selectedStudent.courses.length > 0 && (
+                <button
+                  className={`px-4 py-2 rounded font-bold border ${studentTab === 'cursos' ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white text-yellow-700 border-yellow-500'}`}
+                  onClick={() => setStudentTab('cursos')}
+                >Módulos de cursos</button>
+              )}
             </div>
             {/* NUEVO: Detalle expandible */}
             {studentTab === 'modulos' && (
@@ -442,6 +535,39 @@ const StudentsTable = () => {
                       <li className="text-gray-400 text-xs">No hay seminarios definidos para esta carrera.</li>
                     )}
                   </ul>
+                )}
+              </div>
+            )}
+
+            {studentTab === 'cursos' && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-semibold text-yellow-600 text-lg">Módulos de cursos</span>
+                  <button className="text-xs px-2 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 font-semibold" onClick={() => setShowCursosDetalle(!showCursosDetalle)}>{showCursosDetalle ? 'Ver menos' : 'Ver más'}</button>
+                </div>
+                {showCursosDetalle && (
+                  <div className="space-y-3 mb-4">
+                    {courseModulesInfo.length === 0 && (
+                      <div className="text-gray-400 text-xs">No tiene cursos asignados.</div>
+                    )}
+                    {courseModulesInfo.map(ci => (
+                      <div key={ci.courseId} className="border border-gray-200 rounded-xl p-3 bg-gray-50">
+                        <div className="font-semibold text-blue-900 mb-2">{ci.courseName}</div>
+                        {ci.modules.length === 0 ? (
+                          <div className="text-gray-400 text-xs">Este curso no tiene módulos.</div>
+                        ) : (
+                          <ul className="space-y-1">
+                            {ci.modules.map(m => (
+                              <li key={m.id} className="flex items-center justify-between text-sm">
+                                <span className="text-gray-700">{m.nombre}</span>
+                                <span className="text-gray-500 text-xs">{m.horas ? `${m.horas} h` : ''} {m.precio ? `• ${Number(m.precio).toLocaleString()}` : ''}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             )}

@@ -28,6 +28,7 @@ import ReportGenerator from './components/Reports/ReportGenerator';
 import GradeReportPage from './components/Grades/GradeReportPage'; // Importa la nueva página
 import AttendanceManager from './components/Attendance/AttendanceManager';
 import VistaCarreras from './components/Carreras/VistaCarreras';
+import VistaCursos from './components/Cursos/VistaCursos';
 
 const Page404 = () => <div>Página no encontrada</div>;
 
@@ -156,6 +157,11 @@ function App() {
             <Route path="careers" element={
               <ProtectedRoute roles={['admin']}>
                 <VistaCarreras />
+              </ProtectedRoute>
+            } />
+            <Route path="courses" element={
+              <ProtectedRoute roles={['admin']}>
+                <VistaCursos />
               </ProtectedRoute>
             } />
           </Route>

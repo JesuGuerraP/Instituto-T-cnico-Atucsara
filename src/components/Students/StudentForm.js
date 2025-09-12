@@ -20,10 +20,15 @@ const StudentForm = () => {
     career: '',
     status: 'active',
     teacherId: '',
-    semester: ''
+    semester: '',
+    courses: [],
+    coursePeriod: ''
   });
   const [teachers, setTeachers] = useState([]);
   const [careers, setCareers] = useState([]);
+  const [courses, setCourses] = useState([]);
+  const [originalCourses, setOriginalCourses] = useState([]);
+  const [enrollmentType, setEnrollmentType] = useState('carrera');
 
   useEffect(() => {
     const fetchTeachers = async () => {
@@ -38,7 +43,12 @@ const StudentForm = () => {
       const careersSnap = await getDocs(collection(db, 'careers'));
       setCareers(careersSnap.docs.map(doc => ({ id: doc.id, ...doc.data(), modulos: [] })));
     };
+    const fetchCourses = async () => {
+      const coursesSnap = await getDocs(collection(db, 'courses'));
+      setCourses(coursesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    };
     fetchCareers();
+    fetchCourses();
   }, []);
 
   useEffect(() => {
@@ -48,7 +58,19 @@ const StudentForm = () => {
           const docRef = doc(db, 'students', id);
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
-            setStudent(docSnap.data());
+            const data = docSnap.data();
+            setStudent({ ...data, courses: Array.isArray(data.courses) ? data.courses : [] });
+            setOriginalCourses(Array.isArray(data.courses) ? data.courses : []);
+            // Set enrollment type based on fetched data
+            const hasCareer = !!data.career;
+            const hasCourses = Array.isArray(data.courses) && data.courses.length > 0;
+            if (hasCareer && hasCourses) {
+              setEnrollmentType('ambos');
+            } else if (hasCourses) {
+              setEnrollmentType('curso');
+            } else {
+              setEnrollmentType('carrera');
+            }
           }
           setLoading(false);
         } catch (error) {
@@ -63,28 +85,81 @@ const StudentForm = () => {
   }, [id]);
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
-    setStudent(prev => ({ ...prev, [name]: value }));
+    const { name, value, multiple, options } = e.target;
+    if (name === 'courses' && multiple) {
+      const values = Array.from(options).filter(o => o.selected).map(o => o.value);
+      setStudent(prev => ({ ...prev, courses: values }));
+      return;
+    }
+    // Asegurarnos de que el semestre se guarde como string
+    if (name === 'semester') {
+      setStudent(prev => ({ ...prev, [name]: value ? String(value) : '' }));
+    } else {
+      setStudent(prev => ({ ...prev, [name]: value }));
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const studentData = {
+      let studentData = {
         ...student,
+        semester: student.semester ? String(student.semester) : '',
+        courses: Array.isArray(student.courses) ? student.courses : [],
         updatedAt: new Date().toISOString()
       };
 
+      // Clean up data based on enrollment type
+      if (enrollmentType === 'carrera') {
+        studentData.courses = [];
+        studentData.coursePeriod = '';
+      } else if (enrollmentType === 'curso') {
+        studentData.career = '';
+        studentData.semester = '';
+      }
+
+      let studentId = id;
       if (id) {
         await updateDoc(doc(db, 'students', id), studentData);
+        studentId = id;
         toast.success('Estudiante actualizado correctamente');
       } else {
-        await setDoc(doc(collection(db, 'students')), {
+        const studentsCol = collection(db, 'students');
+        const newDocRef = doc(studentsCol);
+        await setDoc(newDocRef, {
           ...studentData,
           createdAt: new Date().toISOString()
         });
+        studentId = newDocRef.id;
         toast.success('Estudiante creado correctamente');
       }
+
+      // Sincronizar relación estudiante-curso en cada curso
+      const studentName = `${student.name} ${student.lastName || ''}`.trim();
+      const newCourses = studentData.courses; // Use cleaned up courses
+      const prevCourses = Array.isArray(originalCourses) ? originalCourses : [];
+      const toAdd = newCourses.filter(c => !prevCourses.includes(c));
+      const toRemove = prevCourses.filter(c => !newCourses.includes(c));
+
+      for (const courseId of toAdd) {
+        const courseRef = doc(db, 'courses', courseId);
+        const courseSnap = await getDoc(courseRef);
+        const data = courseSnap.exists() ? courseSnap.data() : {};
+        const courseStudents = Array.isArray(data.students) ? data.students : [];
+        if (!courseStudents.some(s => s.id === studentId)) {
+          courseStudents.push({ id: studentId, name: studentName });
+          await updateDoc(courseRef, { students: courseStudents });
+        }
+      }
+      for (const courseId of toRemove) {
+        const courseRef = doc(db, 'courses', courseId);
+        const courseSnap = await getDoc(courseRef);
+        const data = courseSnap.exists() ? courseSnap.data() : {};
+        const courseStudents = Array.isArray(data.students) ? data.students : [];
+        const nextStudents = courseStudents.filter(s => s.id !== studentId);
+        await updateDoc(courseRef, { students: nextStudents });
+      }
+
       navigate('/dashboard/students');
     } catch (error) {
       toast.error('Error guardando el estudiante.');
@@ -100,6 +175,24 @@ const StudentForm = () => {
         {id ? 'Editar Estudiante' : 'Nuevo Estudiante'}
       </h2>
       <form onSubmit={handleSubmit}>
+        <div className="mb-6 p-4 border rounded-md bg-gray-50">
+            <label className="block font-semibold mb-2 text-[#009245]">Tipo de Inscripción</label>
+            <div className="flex flex-wrap gap-x-6 gap-y-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="enrollmentType" value="carrera" checked={enrollmentType === 'carrera'} onChange={e => setEnrollmentType(e.target.value)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300" />
+                    <span className="text-gray-700">Carrera</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="enrollmentType" value="curso" checked={enrollmentType === 'curso'} onChange={e => setEnrollmentType(e.target.value)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300" />
+                    <span className="text-gray-700">Curso</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="enrollmentType" value="ambos" checked={enrollmentType === 'ambos'} onChange={e => setEnrollmentType(e.target.value)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300" />
+                    <span className="text-gray-700">Ambos</span>
+                </label>
+            </div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="block font-semibold mb-1 text-[#009245]">Nombre</label>
@@ -165,21 +258,77 @@ const StudentForm = () => {
               className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
             />
           </div>
-          <div>
-            <label className="block font-semibold mb-1 text-[#009245]">Carrera</label>
-            <select
-              name="career"
-              value={student.career}
-              onChange={handleChange}
-              className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
-              required
-            >
-              <option value="">Seleccionar carrera</option>
-              {careers.map(c => (
-                <option key={c.id} value={c.nombre}>{c.nombre}</option>
-              ))}
-            </select>
-          </div>
+
+          {(enrollmentType === 'carrera' || enrollmentType === 'ambos') && (
+            <>
+              <div>
+                <label className="block font-semibold mb-1 text-[#009245]">Carrera</label>
+                <select
+                  name="career"
+                  value={student.career}
+                  onChange={handleChange}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
+                  required={enrollmentType === 'carrera' || enrollmentType === 'ambos'}
+                >
+                  <option value="">Seleccionar carrera</option>
+                  {careers.map(c => (
+                    <option key={c.id} value={c.nombre}>{c.nombre}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-semibold mb-1 text-[#009245]">Semestre</label>
+                <select
+                  name="semester"
+                  value={student.semester || ''}
+                  onChange={handleChange}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
+                  required={enrollmentType === 'carrera' || enrollmentType === 'ambos'}
+                >
+                  <option value="">Seleccionar semestre</option>
+                  <option value="1">Semestre 1</option>
+                  <option value="2">Semestre 2</option>
+                  <option value="3">Semestre 3</option>
+                  <option value="4">Semestre 4</option>
+                </select>
+              </div>
+            </>
+          )}
+
+          {(enrollmentType === 'curso' || enrollmentType === 'ambos') && (
+            <>
+              <div className="md:col-span-2">
+                <label className="block font-semibold mb-1 text-[#009245]">Cursos (opcional)</label>
+                <select
+                  multiple
+                  name="courses"
+                  value={student.courses || []}
+                  onChange={handleChange}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e] min-h-[120px]"
+                >
+                  {courses.map(c => (
+                    <option key={c.id} value={c.id}>{c.nombre}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Mantén Ctrl/⌘ para seleccionar múltiples cursos.</p>
+              </div>
+              <div>
+                <label className="block font-semibold mb-1 text-[#009245]">Período del Curso</label>
+                <select
+                  name="coursePeriod"
+                  value={student.coursePeriod || ''}
+                  onChange={handleChange}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
+                  required={enrollmentType === 'curso'}
+                >
+                  <option value="">Seleccionar período</option>
+                  <option value={`${new Date().getFullYear()}-1`}>{`${new Date().getFullYear()}-1`}</option>
+                  <option value={`${new Date().getFullYear()}-2`}>{`${new Date().getFullYear()}-2`}</option>
+                </select>
+              </div>
+            </>
+          )}
+
           <div>
             <label className="block font-semibold mb-1 text-[#009245]">Estado</label>
             <select
@@ -207,23 +356,6 @@ const StudentForm = () => {
                   {teacher.name} {teacher.lastName}
                 </option>
               ))}
-            </select>
-          </div>
-          {/* Campo para asignar semestre */}
-          <div>
-            <label className="block font-semibold mb-1 text-[#009245]">Semestre</label>
-            <select
-              name="semester"
-              value={student.semester || ''}
-              onChange={handleChange}
-              className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
-              required
-            >
-              <option value="">Seleccionar semestre</option>
-              <option value="1">Semestre 1</option>
-              <option value="2">Semestre 2</option>
-              <option value="3">Semestre 3</option>
-              <option value="4">Semestre 4</option>
             </select>
           </div>
         </div>
