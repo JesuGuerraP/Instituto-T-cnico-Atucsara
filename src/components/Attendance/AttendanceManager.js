@@ -1,6 +1,6 @@
 import { useState, useEffect, useContext } from 'react';
 import { db } from '../../firebaseConfig';
-import { collection, query, where, getDocs, setDoc, doc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, setDoc, doc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { AuthContext } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import Modal from 'react-modal';
@@ -23,6 +23,7 @@ function getSaturdays(year, month) {
 }
 
 const AttendanceManager = () => {
+  const DEFAULT_PERIOD = '2025-1';
   const { currentUser } = useContext(AuthContext);
   const [students, setStudents] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState('');
@@ -30,6 +31,44 @@ const AttendanceManager = () => {
   const [selectedModule, setSelectedModule] = useState('');
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth());
+  const [selectedPeriod, setSelectedPeriod] = useState(DEFAULT_PERIOD);
+  const [selectedSemester, setSelectedSemester] = useState('');
+  const [academicPeriods, setAcademicPeriods] = useState([DEFAULT_PERIOD]);
+  const [selectedScope, setSelectedScope] = useState('career'); // 'career' | 'course'
+  const [coursesList, setCoursesList] = useState([]); // [{id, nombre}]
+  const [selectedCourse, setSelectedCourse] = useState('');
+
+  // Función para cargar períodos académicos
+  const loadAcademicPeriods = async () => {
+    try {
+      const periodsRef = collection(db, 'academicPeriods');
+      const periodsSnap = await getDocs(periodsRef);
+      const periods = periodsSnap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(doc => doc.period) // Asegurarse de que tiene un periodo válido
+        .map(doc => doc.period);
+      
+      if (periods.length > 0) {
+        // Asegurarse de que DEFAULT_PERIOD esté incluido y ordenar de más reciente a más antiguo
+        const allPeriods = Array.from(new Set([...periods, DEFAULT_PERIOD]))
+          .sort((a, b) => {
+            const [yearA, periodA] = a.split('-');
+            const [yearB, periodB] = b.split('-');
+            return yearB - yearA || periodB - periodA;
+          });
+        
+        setAcademicPeriods(allPeriods);
+        
+        // Si el período seleccionado no está en la lista, seleccionar el más reciente
+        if (!allPeriods.includes(selectedPeriod)) {
+          setSelectedPeriod(allPeriods[0]);
+        }
+      }
+    } catch (error) {
+      console.error('Error al cargar períodos:', error);
+      toast.error('Error al cargar los períodos académicos');
+    }
+  };
   // Estructura: attendance[studentId][dateStr] = true/false
   const [attendance, setAttendance] = useState({});
   
@@ -61,9 +100,53 @@ const AttendanceManager = () => {
   // Lista global de módulos para el filtro
   const [allModuleNames, setAllModuleNames] = useState([]);
 
+  const migrateAttendanceRecords = async () => {
+    try {
+      const attendanceRef = collection(db, 'attendance');
+      const batch = writeBatch(db);
+      let updateCount = 0;
+
+      // Obtener todas las asistencias
+      const snapshot = await getDocs(attendanceRef);
+
+      snapshot.forEach((document) => {
+        const data = document.data();
+        // Solo migrar si no tiene periodo o semestre asignado
+        if (!data.period || !data.semester) {
+          batch.update(document.ref, {
+            period: '2025-1',
+            semester: '1'
+          });
+          updateCount++;
+        }
+      });
+
+      if (updateCount > 0) {
+        await batch.commit();
+        console.log(`Migradas ${updateCount} asistencias al período 2025-1, semestre 1`);
+        toast.success(`Se han migrado ${updateCount} registros de asistencia al período 2025-1, semestre 1`);
+      }
+    } catch (error) {
+      console.error('Error al migrar asistencias:', error);
+      toast.error('Error al migrar las asistencias al nuevo período');
+    }
+  };
+
+  // Cargar períodos académicos al iniciar
+  useEffect(() => {
+    loadAcademicPeriods();
+  }, []);
+
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
+      
+      // Primero cargar los períodos académicos
+      await loadAcademicPeriods();
+      
+      // Luego migrar las asistencias existentes
+      await migrateAttendanceRecords();
+      
       // Obtener todos los usuarios para mostrar nombre en "registrado por"
       const usersSnap = await getDocs(collection(db, 'users'));
       const usersArr = [];
@@ -110,10 +193,16 @@ const AttendanceManager = () => {
               (teacher.name + ' ' + (teacher.lastName || '')).trim().toLowerCase().replace(/\s+/g, ' '),
               teacher.name?.toLowerCase(),
             ].filter(Boolean);
+            
+            // Verificar si el módulo corresponde al semestre seleccionado
+            const moduloSemestre = String(modulo.semestre || modulo.semester);
+            const semestreMatch = !selectedSemester || moduloSemestre === selectedSemester;
+            
             if (
-              (moduloProfesor && teacherNames.includes(moduloProfesor)) ||
+              semestreMatch &&
+              ((moduloProfesor && teacherNames.includes(moduloProfesor)) ||
               (moduloProfesorEmail && teacherEmails.includes(moduloProfesorEmail)) ||
-              (teacherEmails.length && modulo.profesor && teacherEmails.includes(modulo.profesor.toLowerCase()))
+              (teacherEmails.length && modulo.profesor && teacherEmails.includes(modulo.profesor.toLowerCase())))
             ) {
               teacherCareers.add(carrera.nombre);
               teacherModules.push({
@@ -121,7 +210,8 @@ const AttendanceManager = () => {
                 id: moduleDoc.id,
                 nombre: modulo.nombre,
                 careerId: careerDoc.id,
-                careerName: carrera.nombre
+                careerName: carrera.nombre,
+                semester: moduloSemestre
               });
             }
           });
@@ -130,20 +220,62 @@ const AttendanceManager = () => {
         const careersArr = Array.from(teacherCareers);
         setCareers(careersArr);
         setSelectedCareer(careersArr[0] || '');
-        // Solo mostrar estudiantes que tengan módulos asignados del docente
-        const filteredStudents = allStudentsArr.filter(student =>
-          student.modulosAsignados?.some(m => teacherModules.some(tm => tm.id === m.id))
-        );
+        
+        // Cargar cursos donde el teacher imparte (VistaCursos: modules.profesorId o profesorNombre)
+        const coursesSnap = await getDocs(collection(db, 'courses'));
+        const coursesTmp = [];
+        for (const courseDoc of coursesSnap.docs) {
+          const courseData = courseDoc.data();
+          const modsSnap = await getDocs(collection(db, 'courses', courseDoc.id, 'modules'));
+          let teacherHasModule = false;
+          modsSnap.forEach(md => {
+            const m = md.data();
+            if ((m.profesorId && m.profesorId === teacher.id) || ((m.profesorNombre || '').toLowerCase().includes(((teacher.name + ' ' + (teacher.lastName || '')).trim().toLowerCase())))) {
+              teacherHasModule = true;
+            }
+          });
+          if (teacherHasModule) {
+            coursesTmp.push({ id: courseDoc.id, nombre: courseData.nombre });
+          }
+        }
+        setCoursesList(coursesTmp);
+        if (coursesTmp.length && !selectedCourse) setSelectedCourse(coursesTmp[0].id);
+        
+        // Solo mostrar estudiantes que estén en el semestre seleccionado y tengan módulos asignados del docente
+        const filteredStudents = allStudentsArr.filter(student => {
+          const studentSemester = String(student.semester || student.semestre || '1');
+          return (
+            // Verificar que el estudiante esté en el semestre seleccionado
+            (!selectedSemester || studentSemester === selectedSemester) &&
+            // Y que tenga módulos asignados del docente en ese semestre
+            student.modulosAsignados?.some(m => 
+              teacherModules.some(tm => 
+                tm.id === m.id && 
+                String(tm.semester) === studentSemester
+              )
+            )
+          );
+        });
         setStudents(filteredStudents);
         setCareerModules(teacherModules);
         setModulesForCareer(teacherModules);
         setLoading(false);
       } else {
-        // Admin/secretary: mostrar todo
-        const uniqueCareers = Array.from(new Set(allStudentsArr.map(s => s.career).filter(Boolean)));
+        // Admin/secretary: mostrar todo, pero filtrar por semestre
+        const filteredStudents = allStudentsArr.filter(student => {
+          const studentSemester = String(student.semester || student.semestre || '1');
+          return !selectedSemester || studentSemester === selectedSemester;
+        });
+        
+        const uniqueCareers = Array.from(new Set(filteredStudents.map(s => s.career).filter(Boolean)));
         setCareers(['Todos', ...uniqueCareers]);
         setSelectedCareer('Todos');
-        setStudents(allStudentsArr);
+        setStudents(filteredStudents);
+        // Cargar lista de cursos para admin
+        const coursesSnap = await getDocs(collection(db, 'courses'));
+        const allCourses = coursesSnap.docs.map(d => ({ id: d.id, nombre: d.data().nombre }));
+        setCoursesList(allCourses);
+        if (allCourses.length && !selectedCourse) setSelectedCourse(allCourses[0].id);
         setLoading(false);
       }
     };
@@ -151,26 +283,41 @@ const AttendanceManager = () => {
   }, [currentUser]);
 
   useEffect(() => {
-    // Filtrar estudiantes por carrera seleccionada
-    const fetchStudentsByCareer = async () => {
+    // Filtrar estudiantes por carrera/curso seleccionada según ámbito
+    const fetchStudentsByScope = async () => {
       setLoading(true);
-      let studentsSnap;
-      if (selectedCareer === 'Todos' || !selectedCareer) {
-        // Mostrar todos los estudiantes para admin y teacher
-        studentsSnap = await getDocs(collection(db, 'students'));
+      let allStudents = [];
+      const studentsSnap = await getDocs(collection(db, 'students'));
+      studentsSnap.forEach(doc => allStudents.push({ id: doc.id, ...doc.data() }));
+
+      let filtered = [];
+      if (selectedScope === 'career') {
+        let base = allStudents;
+        if (selectedCareer && selectedCareer !== 'Todos') {
+          base = base.filter(s => (s.career || '') === selectedCareer);
+        }
+        filtered = base;
       } else {
-        // Filtrar solo por carrera seleccionada (sin importar el rol)
-        studentsSnap = await getDocs(query(collection(db, 'students'), where('career', '==', selectedCareer)));
+        // ámbito curso: filtrar por selectedCourse (id en array student.courses)
+        const courseId = selectedCourse;
+        filtered = allStudents.filter(s => Array.isArray(s.courses) && (!courseId || s.courses.includes(courseId)));
       }
-      const studentsArr = [];
-      studentsSnap.forEach(doc => studentsArr.push({ id: doc.id, ...doc.data() }));
-      setStudents(studentsArr);
-      setSelectedStudent(studentsArr[0]?.id || '');
+
+      // Filtrar por semestre si aplica (solo carreras usan semestre; mantener para ambos por compatibilidad)
+      filtered = filtered.filter(student => {
+        const studentSemester = String(student.semester || student.semestre || '1');
+        return !selectedSemester || studentSemester === selectedSemester;
+      });
+
+      setStudents(filtered);
+      setSelectedStudent(filtered[0]?.id || '');
       setLoading(false);
     };
-    // Solo ejecutar si hay carreras cargadas
-    if (careers.length > 0 && selectedCareer !== undefined) fetchStudentsByCareer();
-  }, [selectedCareer, currentUser, careers]);
+    // Ejecutar si hay datos cargados
+    if ((selectedScope === 'career' && careers.length > 0) || (selectedScope === 'course' && coursesList.length >= 0)) {
+      fetchStudentsByScope();
+    }
+  }, [selectedCareer, selectedCourse, currentUser, careers, coursesList, selectedSemester, selectedScope]);
 
   useEffect(() => {
     // Cargar asistencia guardada para todos los estudiantes de la carrera/modulo/mes/año
@@ -217,40 +364,75 @@ const AttendanceManager = () => {
 
   useEffect(() => {
     const fetchAttendanceRecords = async () => {
-      setLoading(true);
-      let studentsArr = [];
-      if (selectedCareer === 'Todos' || !selectedCareer) {
-        // Mostrar todos los estudiantes para admin y teacher
-        const studentsSnap = await getDocs(collection(db, 'students'));
-        studentsSnap.forEach(doc => studentsArr.push({ id: doc.id, ...doc.data() }));
-      } else {
-        // Filtrar solo por carrera seleccionada (sin importar el rol)
-        const studentsSnap = await getDocs(query(collection(db, 'students'), where('career', '==', selectedCareer)));
-        studentsSnap.forEach(doc => studentsArr.push({ id: doc.id, ...doc.data() }));
-      }
-      setStudents(studentsArr);
-      // Traer asistencias según filtro de módulo
-      let attArr = [];
-      if (filterModule) {
-        // Traer todas las asistencias de ese módulo (sin importar mes ni año)
-        const attSnap = await getDocs(query(collection(db, 'attendance'), where('moduleName', '==', filterModule)));
-        attSnap.forEach(docu => {
-          const data = docu.data();
-          attArr.push({ id: docu.id, ...data });
+      try {
+        setLoading(true);
+        let studentsArr = [];
+        
+        // Cargar estudiantes según la carrera seleccionada
+        if (selectedCareer === 'Todos' || !selectedCareer) {
+          const studentsSnap = await getDocs(collection(db, 'students'));
+          studentsSnap.forEach(doc => studentsArr.push({ id: doc.id, ...doc.data() }));
+        } else {
+          const studentsSnap = await getDocs(query(collection(db, 'students'), where('career', '==', selectedCareer)));
+          studentsSnap.forEach(doc => studentsArr.push({ id: doc.id, ...doc.data() }));
+        }
+
+        // Filtrar estudiantes por semestre
+        const filteredStudents = studentsArr.filter(student => {
+          const studentSemester = String(student.semester || student.semestre || '1');
+          return !selectedSemester || studentSemester === String(selectedSemester);
         });
-      } else {
-        // Traer todos los documentos de asistencia y filtrar por mes/año en frontend
+
+        setStudents(filteredStudents);
+      
+        // Traer asistencias según filtro de módulo, período y semestre
+        let attArr = [];
         const attSnap = await getDocs(collection(db, 'attendance'));
+        
+        console.log('Buscando asistencias con:', {
+          periodo: selectedPeriod,
+          semestre: selectedSemester,
+          modulo: filterModule
+        });
+
         attSnap.forEach(docu => {
           const data = docu.data();
-          attArr.push({ id: docu.id, ...data });
+          // Convertir semester a string para comparación consistente
+          const semester = String(data.semester || '1');
+          
+          const matchesPeriod = data.period === selectedPeriod;
+          const matchesSemester = !selectedSemester || semester === String(selectedSemester);
+          const matchesModule = !filterModule || data.moduleName === filterModule;
+          const matchesScope = selectedScope === 'career' ? (data.scope !== 'course') : (data.scope === 'course');
+          const matchesCourse = selectedScope === 'course' ? (!selectedCourse || data.courseId === selectedCourse) : true;
+
+          if (matchesPeriod && matchesSemester && matchesModule && matchesScope && matchesCourse) {
+            attArr.push({ 
+              id: docu.id, 
+              ...data,
+              semester: semester // Asegurar que semester sea string
+            });
+          }
         });
+
+        console.log('Registros encontrados:', attArr.length, attArr);
+        setAttendanceRecords(attArr);
+
+        // Mostrar mensaje si no hay asistencias en el semestre seleccionado
+        if (attArr.length === 0 && selectedSemester) {
+          toast.info(`No hay registros de asistencia en el semestre ${selectedSemester}`);
+        }
+
+      } catch (error) {
+        console.error('Error al cargar datos:', error);
+        toast.error('Error al cargar los datos');
+      } finally {
+        setLoading(false);
       }
-      setAttendanceRecords(attArr);
-      setLoading(false);
     };
+
     fetchAttendanceRecords();
-  }, [selectedCareer, year, month, showModal, currentUser, filterModule]);
+  }, [selectedCareer, year, month, showModal, currentUser, filterModule, selectedSemester, selectedPeriod]);
 
   const saturdays = getSaturdays(year, month);
   // Sábados del mes siguiente
@@ -273,12 +455,23 @@ const AttendanceManager = () => {
       toast.error('Debes ingresar el nombre del módulo.');
       return;
     }
+    if (!selectedPeriod) {
+      toast.error('Debes seleccionar un período académico.');
+      return;
+    }
+    if (!selectedSemester) {
+      toast.error('Debes seleccionar un semestre.');
+      return;
+    }
     try {
       // Guardar solo la asistencia de los estudiantes que tengan algún valor marcado (asistió/no asistió en al menos una fecha)
-      const studentsWithAttendance = students.filter(student => attendance[student.id] && Object.keys(attendance[student.id]).length > 0);
+      const studentsWithAttendance = getFilteredStudentsForAttendance().filter(student => 
+        attendance[student.id] && Object.keys(attendance[student.id]).length > 0
+      );
+      
       for (const student of studentsWithAttendance) {
         // Leer asistencia previa (si existe)
-        const docRef = doc(db, 'attendance', `${student.id}_${moduleName}`);
+        const docRef = doc(db, 'attendance', `${student.id}_${moduleName}_${selectedPeriod}_${selectedSemester}`);
         let prevAttendance = {};
         try {
           const prevDoc = await getDocs(query(collection(db, 'attendance'), where('studentId', '==', student.id), where('moduleName', '==', moduleName)));
@@ -313,6 +506,13 @@ const AttendanceManager = () => {
               studentId: student.id,
               moduleName,
               attendance: mergedAttendance,
+              period: selectedPeriod,
+              semester: selectedSemester,
+              carrera: selectedScope === 'career' ? student.career : undefined,
+              scope: selectedScope,
+              courseId: selectedScope === 'course' ? selectedCourse : undefined,
+              courseName: selectedScope === 'course' ? (coursesList.find(c => c.id === selectedCourse)?.nombre || '') : undefined,
+              studentName: `${student.name} ${student.lastName || ''}`.trim(),
               updatedBy: currentUser.uid,
               updatedAt: new Date().toISOString(),
             });
@@ -340,23 +540,118 @@ const AttendanceManager = () => {
   };
 
   useEffect(() => {
-    // Cuando cambia la carrera seleccionada, cargar los módulos de esa carrera
+    // Cuando cambia la carrera/curso seleccionado o el semestre, cargar los módulos según ámbito
     const fetchModules = async () => {
-      if (!selectedCareer || selectedCareer === 'Todos') {
-        setCareerModules([]);
-        return;
+      setLoading(true);
+      try {
+        if (selectedScope === 'course') {
+          if (!selectedCourse) { setCareerModules([]); return; }
+          const modsSnap = await getDocs(collection(db, 'courses', selectedCourse, 'modules'));
+          const allModules = modsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+          // Añadir módulos que ya tienen asistencia guardada
+          const attendanceSnap = await getDocs(collection(db, 'attendance'));
+          const attendanceModules = new Set();
+          attendanceSnap.forEach(docu => {
+            const data = docu.data();
+            if (data.scope === 'course' && data.courseId === selectedCourse && data.period === selectedPeriod) {
+              attendanceModules.add(data.moduleName);
+            }
+          });
+          const moduleNames = new Set([...allModules.map(m => m.nombre), ...Array.from(attendanceModules)]);
+          const finalModules = Array.from(moduleNames).map(nombre => {
+            const existing = allModules.find(m => m.nombre === nombre);
+            return existing || { id: nombre, nombre };
+          }).sort((a, b) => a.nombre.localeCompare(b.nombre));
+          setCareerModules(finalModules);
+          return;
+        }
+
+        if (!selectedCareer || selectedCareer === 'Todos' || !selectedPeriod || !selectedSemester) {
+          setCareerModules([]);
+          return;
+        }
+
+        let allModules = [];
+
+        // Buscar en la colección de módulos directamente
+        const modulesRef = collection(db, 'modulos');
+        const modulesSnap = await getDocs(query(
+          modulesRef,
+          where('carrera', '==', selectedCareer)
+        ));
+        
+        allModules = modulesSnap.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+
+        // Si no hay módulos en 'modulos', buscar en la subcollección de careers
+        if (allModules.length === 0) {
+          const careersSnap = await getDocs(collection(db, 'careers'));
+          const careerDoc = careersSnap.docs.find(doc => 
+            (doc.data().nombre || '').toLowerCase() === selectedCareer.toLowerCase()
+          );
+          
+          if (careerDoc) {
+            const careerModulesSnap = await getDocs(collection(db, 'careers', careerDoc.id, 'modules'));
+            allModules = careerModulesSnap.docs.map(doc => ({
+              id: doc.id,
+              ...doc.data()
+            }));
+          }
+        }
+
+        // Verificar si hay asistencias registradas para los módulos
+        const attendanceSnap = await getDocs(collection(db, 'attendance'));
+        const attendanceModules = new Set();
+        
+        attendanceSnap.forEach(doc => {
+          const data = doc.data();
+          if (
+            data.period === selectedPeriod && 
+            String(data.semester) === String(selectedSemester) &&
+            (data.carrera === selectedCareer) &&
+            (data.scope !== 'course')
+          ) {
+            attendanceModules.add(data.moduleName);
+          }
+        });
+
+        // Combinar módulos de ambas fuentes
+        const moduleNames = new Set([
+          ...allModules.map(m => m.nombre),
+          ...Array.from(attendanceModules)
+        ]);
+
+        const finalModules = Array.from(moduleNames).map(nombre => {
+          const existingModule = allModules.find(m => m.nombre === nombre);
+          return existingModule || {
+            id: nombre,
+            nombre: nombre,
+            carrera: selectedCareer,
+            period: selectedPeriod,
+            semester: selectedSemester
+          };
+        }).sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+        console.log('Módulos totales encontrados:', finalModules.length);
+        setCareerModules(finalModules);
+
+        // Solo mostrar notificación si no hay módulos NI asistencias
+        if (finalModules.length === 0 && attendanceModules.size === 0) {
+          toast.info(`No hay módulos ni asistencias registradas para ${selectedCareer} en el período ${selectedPeriod}, semestre ${selectedSemester}`);
+        }
+      } catch (error) {
+        console.error('Error al cargar módulos:', error);
+        toast.error('Error al cargar los módulos');
+      } finally {
+        setLoading(false);
       }
-      const careersSnap = await getDocs(collection(db, 'careers'));
-      const careerDoc = careersSnap.docs.find(doc => (doc.data().nombre || '').toLowerCase() === selectedCareer.toLowerCase());
-      if (!careerDoc) {
-        setCareerModules([]);
-        return;
-      }
-      const modulesSnap = await getDocs(collection(db, 'careers', careerDoc.id, 'modules'));
-      setCareerModules(modulesSnap.docs.map(m => ({ id: m.id, ...m.data() })));
     };
+
     fetchModules();
-  }, [selectedCareer]);
+  }, [selectedCareer, selectedCourse, selectedPeriod, selectedSemester, selectedScope]);
 
   useEffect(() => {
     // Cargar módulos de la carrera seleccionada SOLO cuando el modal está abierto
@@ -365,6 +660,7 @@ const AttendanceManager = () => {
         setModulesForCareer([]);
         return;
       }
+      
       // Buscar la carrera por nombre
       const careersSnap = await getDocs(collection(db, 'careers'));
       const careerDoc = careersSnap.docs.find(doc => (doc.data().nombre || '').toLowerCase() === selectedCareer.toLowerCase());
@@ -372,18 +668,57 @@ const AttendanceManager = () => {
         setModulesForCareer([]);
         return;
       }
+      
       // Traer módulos de la subcolección
       const modulesSnap = await getDocs(collection(db, 'careers', careerDoc.id, 'modules'));
-      const modulesArr = modulesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setModulesForCareer(modulesArr);
+      const allModules = modulesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      // Filtrar módulos por semestre seleccionado
+      const modulesDelSemestre = allModules.filter(modulo => {
+        const moduloSemestre = String(modulo.semestre || modulo.semester || '1');
+        return moduloSemestre === selectedSemester;
+      });
+      
+      setModulesForCareer(modulesDelSemestre);
+      
+      // Si hay un módulo seleccionado que no está en el semestre actual, limpiarlo
+      if (moduleName && !modulesDelSemestre.some(m => m.nombre === moduleName)) {
+        setModuleName('');
+      }
     };
+    
     fetchModules();
-  }, [selectedCareer, showModal]);
+  }, [selectedCareer, showModal, selectedSemester, moduleName]);
 
   // Limpiar módulo seleccionado cuando cambia la carrera en el modal
   useEffect(() => {
     if (showModal && !editStudentId) setModuleName('');
   }, [selectedCareer, showModal, editStudentId]);
+
+  // Filtrar estudiantes por semestre y módulo seleccionado
+  const getFilteredStudentsForAttendance = () => {
+    return students.filter(student => {
+      const studentSemester = String(student.semester || student.semestre || '1');
+      
+      // Verificar que el estudiante esté en el semestre seleccionado
+      if (selectedSemester && studentSemester !== selectedSemester) {
+        return false;
+      }
+      
+      // Si hay un módulo seleccionado, verificar que el estudiante tenga ese módulo asignado
+      if (moduleName) {
+        const moduleMatch = student.modulosAsignados?.some(m => {
+          const module = modulesForCareer.find(mc => mc.id === m.id);
+          return module && 
+                 module.nombre === moduleName && 
+                 String(module.semestre || module.semester) === studentSemester;
+        });
+        return moduleMatch;
+      }
+      
+      return true;
+    });
+  };
 
   // --- NUEVO: Mantener módulo seleccionado y cargar asistencias previas correctamente ---
   // Cuando se abre el modal para actualizar, mantener el módulo y cargar asistencias previas
@@ -503,12 +838,157 @@ const AttendanceManager = () => {
         </button>
       </div>
       {/* Filtros */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+      <div className="mb-8 border-b pb-6">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center bg-gray-50 rounded-lg p-2">
+              <span className="text-sm text-gray-600 mr-2">Período:</span>
+              <select
+                className="bg-transparent border-none text-[#23408e] font-semibold focus:ring-0 text-sm min-w-[120px]"
+                value={selectedPeriod}
+                onChange={e => setSelectedPeriod(e.target.value)}
+              >
+                {Array.from(new Set([...academicPeriods]))
+                  .sort((a, b) => b.localeCompare(a))
+                  .filter(Boolean)
+                  .map(period => (
+                    <option key={period} value={period}>
+                      {period.replace('-', ' - ')}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            {currentUser?.role === 'admin' && (
+              <button
+                onClick={async () => {
+                  const year = new Date().getFullYear();
+                  const currentPeriods = Array.from(new Set([...academicPeriods]));
+                  const lastPeriod = currentPeriods.sort((a, b) => b.localeCompare(a))[0];
+                  let suggestedYear = year;
+                  let suggestedPeriod = "1";
+                  
+                  if (lastPeriod) {
+                    const [lastYear, lastNum] = lastPeriod.split('-');
+                    if (lastNum === "1") {
+                      suggestedYear = lastYear;
+                      suggestedPeriod = "2";
+                    } else {
+                      suggestedYear = parseInt(lastYear) + 1;
+                      suggestedPeriod = "1";
+                    }
+                  }
+
+                  const newPeriod = prompt(
+                    'Ingrese el nuevo período académico:\n\nFormato: AAAA-N donde:\n- AAAA es el año (ejemplo: 2025)\n- N es el número del período (1 o 2)',
+                    `${suggestedYear}-${suggestedPeriod}`
+                  );
+
+                  if (newPeriod && /^\d{4}-[12]$/.test(newPeriod)) {
+                    if (currentPeriods.includes(newPeriod)) {
+                      alert('Este período ya existe');
+                      return;
+                    }
+
+                    try {
+                      // Crear el documento del período
+                      const periodsRef = collection(db, 'academicPeriods');
+                      await setDoc(doc(periodsRef, newPeriod), {
+                        period: newPeriod,
+                        createdAt: new Date().toISOString(),
+                        createdBy: currentUser.email,
+                        active: true
+                      });
+
+                      // Recargar los períodos desde Firebase
+                      await loadAcademicPeriods();
+                      
+                      // Seleccionar el nuevo período
+                      setSelectedPeriod(newPeriod);
+
+                      toast.success('Período académico creado correctamente');
+                    } catch (error) {
+                      console.error('Error al crear período:', error);
+                      toast.error('Error al crear el período académico');
+                    }
+                  } else if (newPeriod) {
+                    alert('Formato inválido. Use el formato AAAA-N (ejemplo: 2025-1)');
+                  }
+                }}
+                className="p-2 text-[#009245] hover:bg-green-50 rounded-lg transition-colors flex items-center gap-1"
+                title="Agregar nuevo período académico"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+                </svg>
+                <span className="text-sm">Nuevo Período</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Navegación de semestres */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          {/* Ámbito: Carreras / Cursos */}
+          <div className="flex items-center gap-3 mb-2">
+            <span className="text-sm text-gray-600">Ámbito:</span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className={`px-3 py-1.5 rounded-md text-sm ${selectedScope === 'career' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+                onClick={() => setSelectedScope('career')}
+              >Carreras</button>
+              <button
+                type="button"
+                className={`px-3 py-1.5 rounded-md text-sm ${selectedScope === 'course' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+                onClick={() => setSelectedScope('course')}
+              >Cursos</button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {["1", "2", "3"].map(num => (
+              <button
+                key={num}
+                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors
+                  ${selectedSemester === num 
+                    ? "bg-[#23408e] text-white" 
+                    : "text-gray-600 hover:bg-gray-50"}`}
+                onClick={() => setSelectedSemester(num)}
+              >
+                Semestre {num}
+              </button>
+            ))}
+            <button
+              className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors
+                ${!selectedSemester 
+                  ? "bg-gray-100 text-gray-700" 
+                  : "text-gray-600 hover:bg-gray-50"}`}
+              onClick={() => setSelectedSemester("")}
+            >
+              Todos
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Filtros adicionales */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-6">
         <div>
-          <label className="block text-sm font-semibold mb-1 text-[#23408e]">Carrera</label>
-          <select className="w-full border border-[#23408e] rounded px-2 py-2 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-sm" value={selectedCareer} onChange={e => setSelectedCareer(e.target.value)}>
-            {careers.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
+          {selectedScope === 'career' ? (
+            <>
+              <label className="block text-sm font-semibold mb-1 text-[#23408e]">Carrera</label>
+              <select className="w-full border border-[#23408e] rounded px-2 py-2 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-sm" value={selectedCareer} onChange={e => setSelectedCareer(e.target.value)}>
+                {careers.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </>
+          ) : (
+            <>
+              <label className="block text-sm font-semibold mb-1 text-[#23408e]">Curso</label>
+              <select className="w-full border border-[#23408e] rounded px-2 py-2 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-sm" value={selectedCourse} onChange={e => setSelectedCourse(e.target.value)}>
+                {coursesList.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+            </>
+          )}
         </div>
         <div>
           <label className="block text-sm font-semibold mb-1 text-[#23408e]">Filtrar por módulo</label>
@@ -516,9 +996,11 @@ const AttendanceManager = () => {
             <option value="">Todos</option>
             {(
               selectedCareer && selectedCareer !== 'Todos' && careerModules.length > 0
-                ? careerModules.map(m => (
-                    <option key={m.nombre} value={m.nombre}>{m.nombre}</option>
-                  ))
+                ? careerModules
+                    .filter(m => !selectedSemester || String(m.semestre || m.semester) === selectedSemester)
+                    .map(m => (
+                      <option key={m.nombre} value={m.nombre}>{m.nombre}</option>
+                    ))
                 : allModuleNames.map(m => (
                     <option key={m} value={m}>{m}</option>
                   ))
@@ -527,11 +1009,26 @@ const AttendanceManager = () => {
         </div>
       </div>
       {/* Tabla de información de asistencia */}
-      <div className="overflow-x-auto mt-4">
-        <table className="min-w-[700px] w-full border rounded-lg text-xs sm:text-base">
-          <thead>
-            <tr className="bg-[#23408e] text-white">
-              <th className="px-4 py-2 text-left font-semibold">Carrera</th>
+      {loading ? (
+        <div className="text-center py-8 text-gray-600">Cargando...</div>
+      ) : attendanceRecords.length === 0 ? (
+        <div className="text-center py-8 bg-gray-50 rounded-lg border border-gray-200 mt-4">
+          <svg className="w-16 h-16 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          <p className="text-lg font-semibold text-gray-800 mb-2">No hay registros de asistencia</p>
+          <p className="text-gray-600">
+            {selectedSemester 
+              ? `No se encontraron asistencias para el semestre ${selectedSemester}`
+              : "No se encontraron registros de asistencia"}
+          </p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto mt-4">
+          <table className="min-w-[700px] w-full border rounded-lg text-xs sm:text-base">
+            <thead className="sticky top-0 z-10">
+              <tr className="bg-[#23408e] text-white">
+                <th className="px-4 py-2 text-left font-semibold">{selectedScope === 'course' ? 'Curso' : 'Carrera'}</th>
               <th className="px-4 py-2 text-center font-semibold">Módulo</th>
               <th className="px-4 py-2 text-center font-semibold">Estudiante</th>
               <th className="px-4 py-2 text-center font-semibold">Sábados</th>
@@ -548,18 +1045,18 @@ const AttendanceManager = () => {
               let filteredRecords = filterModule
                 ? attendanceRecords.filter(r => r.moduleName === filterModule)
                 : attendanceRecords;
-              // Agrupar por carrera, luego por módulo
+              // Agrupar por carrera/curso, luego por módulo
               const grouped = {};
               filteredRecords.forEach(rec => {
                 const student = students.find(s => s.id === rec.studentId);
                 if (!student) return;
-                const career = student.career || 'Sin carrera';
-                if (!grouped[career]) grouped[career] = {};
-                if (!grouped[career][rec.moduleName]) grouped[career][rec.moduleName] = [];
-                grouped[career][rec.moduleName].push({ ...rec, student });
+                const key = selectedScope === 'course' ? (rec.courseName || 'Curso') : (student.career || 'Sin carrera');
+                if (!grouped[key]) grouped[key] = {};
+                if (!grouped[key][rec.moduleName]) grouped[key][rec.moduleName] = [];
+                grouped[key][rec.moduleName].push({ ...rec, student });
               });
               // Renderizar agrupado
-              return Object.entries(grouped).map(([career, modules]) => (
+              return Object.entries(grouped).map(([groupKey, modules]) => (
                 Object.entries(modules).map(([modName, records]) => (
                   records.map((rec, idx) => {
                     let totalSab = 0;
@@ -570,7 +1067,7 @@ const AttendanceManager = () => {
                     });
                     return (
                       <tr key={rec.id} className="border-b hover:bg-[#f0f6ff]">
-                        <td className="px-4 py-2 font-semibold whitespace-nowrap text-[#23408e]">{career}</td>
+                        <td className="px-4 py-2 font-semibold whitespace-nowrap text-[#23408e]">{groupKey}</td>
                         <td className="px-4 py-2 text-center text-[#009245] font-semibold">{modName}</td>
                         <td className="px-4 py-2 font-semibold whitespace-nowrap text-[#23408e]">{rec.student.name} {rec.student.lastName}</td>
                         <td className="px-4 py-2 text-center">{totalSab}</td>
@@ -585,7 +1082,7 @@ const AttendanceManager = () => {
                           })()
                         }</td>
                         <td className="px-4 py-2 text-center text-xs text-gray-500">{rec.updatedAt ? new Date(rec.updatedAt).toLocaleString('es-CO') : '-'}</td>
-                        <td className="px-4 py-2 text-center flex gap-2 justify-center">
+                        <td className="px-4 py-2 text-center flex flex-wrap gap-2 justify-center">
                           <button
                             className="border rounded px-2 py-1 text-[#23408e] hover:bg-gray-50 text-xs font-semibold"
                             onClick={() => { setDetailRecord({ ...rec, student: rec.student }); setShowDetailModal(true); }}
@@ -608,6 +1105,7 @@ const AttendanceManager = () => {
           </tbody>
         </table>
       </div>
+      )}
       {/* Modal para registrar asistencia */}
       <Modal
         isOpen={showModal}
@@ -631,10 +1129,16 @@ const AttendanceManager = () => {
         {/* Formulario de asistencia */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 mb-10">
           <div>
-            <label className="block text-base font-semibold mb-2 text-[#23408e]">Carrera</label>
-            <select className="w-full border-2 border-[#23408e] rounded-lg px-4 py-3 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-base bg-white shadow-sm" value={selectedCareer} onChange={e => setSelectedCareer(e.target.value)}>
-              {careers.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <label className="block text-base font-semibold mb-2 text-[#23408e]">{selectedScope === 'course' ? 'Curso' : 'Carrera'}</label>
+            {selectedScope === 'course' ? (
+              <select className="w-full border-2 border-[#23408e] rounded-lg px-4 py-3 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-base bg-white shadow-sm" value={selectedCourse} onChange={e => setSelectedCourse(e.target.value)}>
+                {coursesList.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+            ) : (
+              <select className="w-full border-2 border-[#23408e] rounded-lg px-4 py-3 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-base bg-white shadow-sm" value={selectedCareer} onChange={e => setSelectedCareer(e.target.value)}>
+                {careers.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            )}
           </div>
           <div>
             <label className="block text-base font-semibold mb-2 text-[#23408e]">Mes</label>
@@ -667,7 +1171,7 @@ const AttendanceManager = () => {
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-[900px] w-full border rounded-2xl text-xs sm:text-base shadow-md">
-            <thead>
+            <thead className="sticky top-0 z-10">
               <tr className="bg-[#23408e] text-white">
                 <th className="px-4 py-3 text-left font-semibold">Estudiante</th>
                 {saturdays.map((date, idx) => {
@@ -708,7 +1212,7 @@ const AttendanceManager = () => {
               </tr>
             </thead>
             <tbody>
-              {students.map(student => (
+              {getFilteredStudentsForAttendance().map(student => (
                 <tr key={student.id} className="border-b hover:bg-[#f0f6ff]">
                   <td className="px-4 py-3 font-semibold whitespace-nowrap text-[#23408e] text-base">{student.name} {student.lastName}</td>
                   {saturdays.map(date => {
@@ -717,7 +1221,7 @@ const AttendanceManager = () => {
                     const currentValue = attendance[student.id]?.[dateStr];
                     return (
                       <td key={dateStr} className="px-4 py-3 text-center">
-                        <div className="flex items-center justify-center gap-3">
+                        <div className="flex items-center justify-center gap-3 flex-wrap">
                           {/* Checkbox Asistió */}
                           <label className="inline-flex items-center cursor-pointer">
                             <input
@@ -781,7 +1285,7 @@ const AttendanceManager = () => {
                     const currentValue = attendance[student.id]?.[dateStr];
                     return (
                       <td key={dateStr} className="px-4 py-3 text-center bg-[#e6f9ed]">
-                        <div className="flex items-center justify-center gap-3">
+                        <div className="flex items-center justify-center gap-3 flex-wrap">
                           {/* Checkbox Asistió */}
                           <label className="inline-flex items-center cursor-pointer">
                             <input
