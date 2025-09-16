@@ -21,18 +21,21 @@ const GradeForm = ({
     scope = 'career' 
 }) => {
 
+  // **NUEVO ESTADO**: para manejar múltiples estudiantes y sus notas
+  const [selectedStudents, setSelectedStudents] = useState([]);
+  const [studentGrades, setStudentGrades] = useState({});
+
   const [form, setForm] = useState({
-    studentId: '',
-    studentName: '',
+    // studentId y studentName ya no se usan para la selección principal
     teacherId: '',
     teacherName: '',
     moduleId: '',
     moduleName: '',
-    courseId: '', // Para ámbito de curso
+    courseId: '',
     groupId: '',
     groupName: '',
     activityName: '',
-    grade: '',
+    grade: '', // Se mantiene para el modo de edición individual
     date: new Date().toISOString().slice(0, 10),
     period: selectedPeriod || '',
     semester: scope === 'career' ? selectedSemester || '1' : ''
@@ -44,8 +47,12 @@ const GradeForm = ({
         ...editGrade,
         date: editGrade.date || new Date().toISOString().slice(0, 10),
       });
+      // Pre-seleccionar el estudiante en modo edición
+      const student = students.find(s => s.id === editGrade.studentId);
+      if (student) {
+        setSelectedStudents([{ value: student.id, label: `${student.name} ${student.lastName}` }]);
+      }
     } else {
-      // Pre-llenar profesor si el rol es 'teacher'
       if (currentUser?.role === 'teacher' && teachers.length > 0) {
         const teacher = teachers[0];
         setForm(f => ({
@@ -55,7 +62,7 @@ const GradeForm = ({
         }));
       }
     }
-  }, [editGrade, currentUser, teachers, selectedPeriod, selectedSemester, scope]);
+  }, [editGrade, currentUser, teachers, students, selectedPeriod, selectedSemester, scope]);
 
   const availableModules = useMemo(() => {
     return modules.filter(m => {
@@ -71,13 +78,14 @@ const GradeForm = ({
   }, [modules, scope, selectedSemester]);
 
   const availableStudents = useMemo(() => {
+    if (!form.moduleId) return []; // **CAMBIO**: No mostrar estudiantes hasta que se elija un módulo
+
     if (scope === 'career') {
         return students.filter(s => !selectedSemester || String(s.semester) === String(selectedSemester));
     }
     if (scope === 'course') {
         const selectedModule = availableModules.find(m => m.id === form.moduleId);
         if (selectedModule) {
-            // Filtrar estudiantes que están en el curso de ese módulo
             return students.filter(s => Array.isArray(s.courses) && s.courses.includes(selectedModule.courseId));
         }
         return students.filter(s => Array.isArray(s.courses) && s.courses.length > 0);
@@ -95,6 +103,9 @@ const GradeForm = ({
       if (scope === 'course' && mod) {
         newForm.courseId = mod.courseId;
       }
+      // Limpiar estudiantes al cambiar de módulo
+      setSelectedStudents([]);
+      setStudentGrades({});
     }
 
     if (name === 'groupId') {
@@ -105,35 +116,72 @@ const GradeForm = ({
     setForm(newForm);
   };
 
-  const handleStudentSelect = (option) => {
-    const student = availableStudents.find(s => s.id === option?.value);
-    setForm(f => ({
-      ...f,
-      studentId: option ? option.value : '',
-      studentName: student ? `${student.name} ${student.lastName}` : ''
+  // **MANEJADOR ACTUALIZADO**: para selección múltiple de estudiantes
+  const handleStudentSelect = (options) => {
+    setSelectedStudents(options || []);
+    // Limpiar notas si la selección cambia
+    if (!editGrade) {
+      setStudentGrades({});
+    }
+  };
+
+  // **NUEVO MANEJADOR**: para actualizar la nota de un estudiante específico
+  const handleGradeChange = (studentId, grade) => {
+    setStudentGrades(prev => ({
+      ...prev,
+      [studentId]: grade
     }));
   };
 
   const handleSubmit = e => {
     e.preventDefault();
-    if (!form.studentId || !form.teacherId || !form.moduleId || !form.activityName || !form.grade) {
-      alert('Completa los campos obligatorios');
-      return;
-    }
-
-    const isEditing = !!editGrade;
-    const id = isEditing ? editGrade.id : `${form.studentId}_${form.moduleId}_${form.activityName}_${Date.now()}`;
     
-    let gradeData = { ...form, id };
+    const isEditing = !!editGrade;
 
-    // Limpiar campos irrelevantes según el ámbito
-    if (scope === 'career') {
-      delete gradeData.courseId;
-    } else { // course
-      delete gradeData.semester;
+    if (isEditing) {
+      // Lógica de guardado para edición individual (sin cambios)
+      if (!form.studentId || !form.teacherId || !form.moduleId || !form.activityName || !form.grade) {
+        alert('Completa los campos obligatorios para editar.');
+        return;
+      }
+      onSave({ ...form, id: editGrade.id }, true);
+
+    } else {
+      // **NUEVA LÓGICA DE GUARDADO**: para múltiples estudiantes
+      if (selectedStudents.length === 0 || !form.teacherId || !form.moduleId || !form.activityName) {
+        alert('Debes seleccionar al menos un alumno y completar los campos de módulo, profesor y actividad.');
+        return;
+      }
+
+      const studentsWithGrades = selectedStudents.filter(s => studentGrades[s.value] !== undefined && studentGrades[s.value] !== '');
+
+      if (studentsWithGrades.length === 0) {
+        alert('Debes ingresar la nota para al menos un alumno seleccionado.');
+        return;
+      }
+
+      studentsWithGrades.forEach(student => {
+        const studentId = student.value;
+        const studentData = students.find(s => s.id === studentId);
+        const grade = studentGrades[studentId];
+
+        const gradeData = {
+          ...form,
+          studentId: studentId,
+          studentName: studentData ? `${studentData.name} ${studentData.lastName}` : '',
+          grade: grade,
+          id: `${studentId}_${form.moduleId}_${form.activityName}_${Date.now()}`
+        };
+
+        if (scope === 'career') {
+          delete gradeData.courseId;
+        } else {
+          delete gradeData.semester;
+        }
+        
+        onSave(gradeData, false);
+      });
     }
-
-    onSave(gradeData, isEditing);
   };
 
   const studentOptions = useMemo(() => availableStudents.map(s => ({
@@ -141,11 +189,13 @@ const GradeForm = ({
     label: `${s.name} ${s.lastName}`
   })), [availableStudents]);
 
+  const isMultiStudentMode = !editGrade;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-      <div className="bg-white rounded-lg shadow-lg p-8 max-w-2xl w-full relative border-l-4 border-[#23408e]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-lg p-8 max-w-4xl w-full my-8 relative border-l-4 border-[#23408e]">
         <button className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-xl" onClick={onClose}>&times;</button>
-        <h2 className="text-2xl font-bold mb-6 text-[#23408e]">{editGrade ? 'Editar Nota' : 'Registrar Nueva Nota'}</h2>
+        <h2 className="text-2xl font-bold mb-6 text-[#23408e]">{editGrade ? 'Editar Nota' : 'Registrar Nuevas Notas'}</h2>
         <form onSubmit={handleSubmit}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             
@@ -162,14 +212,15 @@ const GradeForm = ({
             </div>
 
             <div>
-              <label className="block font-semibold mb-1 text-[#009245]">Alumno:</label>
+              <label className="block font-semibold mb-1 text-[#009245]">Alumnos:</label>
               <Select
-                value={studentOptions.find(opt => opt.value === form.studentId)}
+                value={selectedStudents}
                 onChange={handleStudentSelect}
                 options={studentOptions}
-                placeholder="Buscar o seleccionar alumno..."
+                placeholder={form.moduleId ? "Buscar o seleccionar alumnos..." : "Selecciona un módulo primero"}
                 isClearable
-                required
+                isMulti={isMultiStudentMode} // **CAMBIO**: Habilitar selección múltiple
+                isDisabled={!form.moduleId || !!editGrade} // **CAMBIO**: Deshabilitar si no hay módulo o si se está editando
               />
             </div>
 
@@ -198,15 +249,42 @@ const GradeForm = ({
               </select>
             </div>
 
-            <div>
-              <label className="block font-semibold mb-1 text-[#009245]">Valor de la Nota:</label>
-              <input type="number" name="grade" value={form.grade} onChange={handleChange} className="w-full p-2 border border-gray-300 rounded-md" placeholder="Ej: 4.5" min="0" max="5" step="0.1" required />
-            </div>
-
+            {/* **CAMBIO**: El campo de nota individual solo aparece en modo edición */}
+            {editGrade && (
+              <div>
+                <label className="block font-semibold mb-1 text-[#009245]">Valor de la Nota:</label>
+                <input type="number" name="grade" value={form.grade} onChange={handleChange} className="w-full p-2 border border-gray-300 rounded-md" placeholder="Ej: 4.5" min="0" max="5" step="0.1" required />
+              </div>
+            )}
           </div>
+
+          {/* **NUEVA SECCIÓN**: para ingresar notas de múltiples estudiantes */}
+          {isMultiStudentMode && selectedStudents.length > 0 && (
+            <div className="mt-6 pt-4 border-t">
+              <h3 className="text-xl font-semibold mb-4 text-[#23408e]">Ingresar Notas</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4 max-h-60 overflow-y-auto pr-2">
+                {selectedStudents.map(student => (
+                  <div key={student.value} className="flex items-center space-x-4">
+                    <label className="flex-1 font-medium text-gray-700">{student.label}</label>
+                    <input
+                      type="number"
+                      value={studentGrades[student.value] || ''}
+                      onChange={(e) => handleGradeChange(student.value, e.target.value)}
+                      className="w-28 p-2 border border-gray-300 rounded-md"
+                      placeholder="Nota"
+                      min="0"
+                      max="5"
+                      step="0.1"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="mt-8 flex justify-end space-x-3">
             <button type="button" onClick={onClose} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Cancelar</button>
-            <button type="submit" className="px-6 py-2 bg-[#009245] text-white rounded-md hover:bg-[#23408e] font-semibold">{editGrade ? 'Actualizar' : 'Guardar Nota'}</button>
+            <button type="submit" className="px-6 py-2 bg-[#009245] text-white rounded-md hover:bg-[#23408e] font-semibold">{editGrade ? 'Actualizar' : 'Guardar Notas'}</button>
           </div>
         </form>
       </div>

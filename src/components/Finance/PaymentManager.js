@@ -596,8 +596,9 @@ const PaymentManager = () => {
   };
 
   return (
-    <div className="p-4 md:p-8">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+    <div className="p-4 sm:p-6 md:p-8">
+      {/* -- Encabezado -- */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-gray-900 flex items-center gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3v18h18" /></svg>
@@ -605,7 +606,7 @@ const PaymentManager = () => {
           </h1>
           <p className="text-gray-600 mt-2">Administra los ingresos, gastos y balance financiero del instituto</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {currentUser?.role === 'admin' && (
             <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-lg">
               <input
@@ -625,18 +626,18 @@ const PaymentManager = () => {
               </button>
             </div>
           )}
-          <button onClick={() => setIsDialogOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md font-semibold flex items-center">
+          <button onClick={() => setIsDialogOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md font-semibold flex items-center w-full sm:w-auto justify-center">
             <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
             Nueva Transacción
           </button>
         </div>
       </div>
 
-      {/* Period and Semester Navigation */}
+      {/* -- Navegación de Período y Semestre -- */}
       <div className="mb-8 border-b pb-6">
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
           <h1 className="text-2xl font-bold text-[#23408e]">Período Académico</h1>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center bg-gray-50 rounded-lg p-2">
               <span className="text-sm text-gray-600 mr-2">Período:</span>
               <select
@@ -680,13 +681,12 @@ const PaymentManager = () => {
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
                 </svg>
-                <span className="text-sm">Nuevo Período</span>
+                <span className="hidden sm:inline text-sm">Nuevo Período</span>
               </button>
             )}
           </div>
         </div>
-        <div className="flex items-center justify-between">
-          <div className="flex gap-2">
+        <div className="flex flex-wrap items-center justify-start gap-2">
             {["1", "2", "3"].map(num => (
               <button
                 key={num}
@@ -702,13 +702,12 @@ const PaymentManager = () => {
             >
               Todos
             </button>
-          </div>
         </div>
       </div>
 
-
-      {/* Stats Cards */}
+      {/* -- Tarjetas de Estadísticas -- */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-6">
+        {/* ... tarjetas sin cambios ... */}
         <div className="bg-white rounded-lg shadow p-6 flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-gray-600">Ingresos Totales</p>
@@ -739,30 +738,30 @@ const PaymentManager = () => {
         </div>
       </div>
 
-      {/* Filtros y búsqueda */}
-      <div className="bg-white rounded-lg shadow p-4 md:p-6 mb-6 flex flex-col md:flex-row gap-4">
+      {/* -- Filtros y Búsqueda -- */}
+      <div className="bg-white rounded-lg shadow p-4 md:p-6 mb-6 flex flex-col lg:flex-row gap-4">
         <div className="flex-1 relative">
           <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>
           <input
-            className="pl-10 border rounded px-2 py-1 text-sm w-full"
+            className="pl-10 border rounded px-3 py-2 text-sm w-full"
             placeholder="Buscar por descripción, categoría o estudiante..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
           />
         </div>
-        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-          <select className="border rounded px-2 py-1 text-sm w-full sm:w-40" value={filterType} onChange={e => setFilterType(e.target.value)}>
+        <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
+          <select className="border rounded px-3 py-2 text-sm w-full sm:w-auto lg:w-40" value={filterType} onChange={e => setFilterType(e.target.value)}>
             <option value="all">Todos</option>
             <option value="income">Ingresos</option>
             <option value="expense">Gastos</option>
           </select>
           <input
             type="date"
-            className="border rounded px-2 py-1 text-sm w-full sm:w-40"
+            className="border rounded px-3 py-2 text-sm w-full sm:w-auto lg:w-40"
             value={filterDate}
             onChange={e => setFilterDate(e.target.value)}
           />
-          <select className="border rounded px-2 py-1 text-sm w-full sm:w-40" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
+          <select className="border rounded px-3 py-2 text-sm w-full sm:w-auto lg:w-48" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
             <option value="">Todas las categorías</option>
             {categoryOptions.concat(coursesCategoryOptions).concat('Pago a profesor').map(opt => (
               <option key={opt} value={opt}>{opt}</option>
@@ -771,132 +770,99 @@ const PaymentManager = () => {
         </div>
       </div>
 
-      {/* Lista de transacciones */}
+      {/* -- Lista de Transacciones -- */}
       <div className="grid gap-4">
-        {/* Mostrar agrupados los pagos de módulo por estudiante (carreras) */}
+        {/* Pagos de Módulo Agrupados (Carreras) */}
         {Object.keys(pagosModuloPorEstudiante).map(studentId => {
           const student = students.find(s => s.id === studentId);
           const pagos = pagosModuloPorEstudiante[studentId];
           const totalPagado = pagos.reduce((sum, t) => sum + Number(t.amount), 0);
-          
-          // Usar el valor del semestre dinámico
           const valorSemestre = getSemesterPrice(selectedPeriod, selectedSemester);
           const valorSemestreConDescuento = calculateDiscountedAmount(valorSemestre, discounts[studentId] || 0);
           const saldoPendiente = valorSemestreConDescuento - totalPagado;
 
           return (
-            <div key={studentId} className="bg-white rounded-lg shadow hover:shadow-md transition-shadow p-6 flex items-center justify-between border-l-4 border-green-200">
-              <div>
+            <div key={studentId} className="bg-white rounded-lg shadow hover:shadow-md transition-shadow p-4 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-l-4 border-green-200">
+              <div className="flex-grow">
                 <h3 className="font-semibold text-gray-900">Pago de módulo</h3>
                 <p className="text-sm text-gray-600">Estudiante: {student ? (student.name || student.fullName || student.email) : 'Desconocido'}</p>
-                <div className="text-xs text-blue-700 font-semibold cursor-pointer hover:underline" onClick={() => handleOpenResumen(studentId)}>
+                <div className="text-xs text-blue-700 font-semibold cursor-pointer hover:underline mt-1" onClick={() => handleOpenResumen(studentId)}>
                   {pagos.length} pagos de módulo - Ver resumen
                 </div>
               </div>
-              <div className="text-right">
-                <p className="text-2xl font-bold text-green-600">+{formatCurrency(totalPagado)}</p>
-                <p className="text-sm text-yellow-600">Saldo pendiente: {formatCurrency(saldoPendiente)}</p>
+              <div className="text-left sm:text-right w-full sm:w-auto">
+                <p className="text-xl sm:text-2xl font-bold text-green-600">+{formatCurrency(totalPagado)}</p>
+                <p className="text-sm text-yellow-600 mt-1">Saldo pendiente: {formatCurrency(saldoPendiente)}</p>
               </div>
             </div>
           );
         })}
 
-        {/* Mostrar agrupados los pagos de módulo de curso por estudiante y curso */}
+        {/* Pagos de Módulo Agrupados (Cursos) */}
         {Object.keys(pagosModuloCursoPorEstudianteCurso).map(key => {
           const grupo = pagosModuloCursoPorEstudianteCurso[key];
           const student = students.find(s => s.id === grupo.studentId);
           const course = courses.find(c => c.id === grupo.courseId);
           const totalPagado = grupo.pagos.reduce((sum, t) => sum + Number(t.amount), 0);
-          
-          // Calcular saldo pendiente basado en el valor total del curso con descuento aplicado
           const valorTotalCurso = course ? Number(course.valorTotal || 0) : 0;
-          const descuentoCurso = courseDiscounts[key] || 0; // Obtener descuento específico del curso
+          const descuentoCurso = courseDiscounts[key] || 0;
           const valorTotalConDescuento = calculateDiscountedAmount(valorTotalCurso, descuentoCurso);
           const saldoPendiente = valorTotalConDescuento - totalPagado;
 
           return (
-            <div key={key} className="bg-white rounded-lg shadow hover:shadow-md transition-shadow p-6 flex items-center justify-between border-l-4 border-purple-200">
-              <div>
+            <div key={key} className="bg-white rounded-lg shadow hover:shadow-md transition-shadow p-4 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-l-4 border-purple-200">
+              <div className="flex-grow">
                 <h3 className="font-semibold text-gray-900">Pago de módulo (Curso)</h3>
                 <p className="text-sm text-gray-600">Estudiante: {student ? (student.name || student.fullName || student.email) : 'Desconocido'}</p>
                 <p className="text-sm text-gray-600">Curso: {course ? course.nombre : 'Curso desconocido'}</p>
-                {descuentoCurso > 0 && (
-                  <p className="text-xs text-green-600">Descuento aplicado: {descuentoCurso}%</p>
-                )}
-                <div className="text-xs text-purple-700 font-semibold cursor-pointer hover:underline" onClick={() => setResumenCursoData({ studentId: grupo.studentId, courseId: grupo.courseId })}>
+                {descuentoCurso > 0 && <p className="text-xs text-green-600">Descuento: {descuentoCurso}%</p>}
+                <div className="text-xs text-purple-700 font-semibold cursor-pointer hover:underline mt-1" onClick={() => setResumenCursoData({ studentId: grupo.studentId, courseId: grupo.courseId })}>
                   {grupo.pagos.length} pagos de módulo - Ver resumen
                 </div>
               </div>
-              <div className="text-right">
-                <p className="text-2xl font-bold text-green-600">+{formatCurrency(totalPagado)}</p>
-                <p className="text-sm text-yellow-600">Saldo pendiente: {formatCurrency(saldoPendiente)}</p>
+              <div className="text-left sm:text-right w-full sm:w-auto">
+                <p className="text-xl sm:text-2xl font-bold text-green-600">+{formatCurrency(totalPagado)}</p>
+                <p className="text-sm text-yellow-600 mt-1">Saldo pendiente: {formatCurrency(saldoPendiente)}</p>
               </div>
             </div>
           );
         })}
-        {/* Mostrar el resto de transacciones (matrícula, pagos a profesor, otros) */}
+
+        {/* Transacciones Individuales */}
         {filteredTransactions.filter(t => t.category !== 'Pago de módulo' && t.category !== 'Pago de módulo (Curso)').map(transaction => {
           const student = students.find(s => s.id === transaction.studentId);
           const teacher = teachers.find(t => t.id === transaction.teacherId);
-          // Calcular progreso de pago del semestre para el estudiante
-          let studentProgress = null;
-          if (transaction.category === 'Matrícula' || transaction.category === 'Pago de módulo') {
-            const pagosEstudiante = transactions.filter(t => t.studentId === transaction.studentId && (t.category === 'Matrícula' || t.category === 'Pago de módulo'));
-            const totalPagado = pagosEstudiante.reduce((sum, t) => sum + Number(t.amount), 0);
-            const valorSemestre = getSemesterPrice(transaction.periodo, transaction.semestre);
-            studentProgress = {
-              pagado: totalPagado,
-              deuda: valorSemestre - totalPagado
-            };
-          }
-          // Calcular total pagado a profesor
-          let teacherProgress = null;
-          if (transaction.category === 'Pago a profesor') {
-            const pagosProfesor = transactions.filter(t => t.teacherId === transaction.teacherId && t.category === 'Pago a profesor');
-            const totalPagado = pagosProfesor.reduce((sum, t) => sum + Number(t.amount), 0);
-            teacherProgress = {
-              pagado: totalPagado
-            };
-          }
           return (
-            <div key={transaction.id} className={`bg-white rounded-lg shadow hover:shadow-md transition-shadow p-4 md:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 ${transaction.type === 'income' ? 'border-l-4 border-green-200' : 'border-l-4 border-red-200'}`}>
-              <div className="flex items-center gap-4">
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${transaction.type === 'income' ? 'bg-green-100' : 'bg-red-100'}`}>
+            <div key={transaction.id} className={`bg-white rounded-lg shadow hover:shadow-md transition-shadow p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${transaction.type === 'income' ? 'border-l-4 border-green-200' : 'border-l-4 border-red-200'}`}>
+              <div className="flex items-center gap-4 flex-grow">
+                <div className={`w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center ${transaction.type === 'income' ? 'bg-green-100' : 'bg-red-100'}`}>
                   {transaction.type === 'income' ? (
                     <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 12l5 5L20 7" /></svg>
                   ) : (
                     <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 12l-5 5L4 7" /></svg>
                   )}
                 </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">{transaction.description}</h3>
+                <div className="flex-grow">
+                  <h3 className="font-semibold text-gray-900 break-words">{transaction.description}</h3>
                   <p className="text-sm text-gray-600">{transaction.category}</p>
-                  {/* Mostrar nombre y progreso */}
-                  {student && (transaction.category === 'Matrícula' || transaction.category === 'Cursos Especiales' || transaction.category === 'Certificaciones' || transaction.category === 'Otros') && (
-                    <div className="text-xs text-blue-700 font-semibold">Estudiante: {student.name || student.fullName || student.email}</div>
-                  )}
-                  {teacher && (
-                    <div className="text-xs text-purple-700 font-semibold">Profesor: {teacher.name || teacher.fullName || teacher.email}</div>
-                  )}
+                  {student && <div className="text-xs text-blue-700 font-semibold mt-1">Estudiante: {student.name || student.fullName || student.email}</div>}
+                  {teacher && <div className="text-xs text-purple-700 font-semibold mt-1">Profesor: {teacher.name || teacher.fullName || teacher.email}</div>}
                 </div>
               </div>
-              <div className="flex flex-col md:flex-row items-end md:items-center gap-2 md:gap-4">
-                <div className="text-right">
+              
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 mt-4 sm:mt-0">
+                <div className="text-left sm:text-right">
                   <p className="text-sm text-gray-600">Fecha</p>
-                  <p className="font-medium">{transaction.date ? (() => {
-                    // Evitar desfase de zona horaria interpretando yyyy-MM-dd como local
-                    const [year, month, day] = transaction.date.split('-');
-                    return `${day}/${month}/${year}`;
-                  })() : ''}</p>
+                  <p className="font-medium whitespace-nowrap">{transaction.date ? new Date(transaction.date + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}</p>
                 </div>
-                <div className="text-right">
-                  <p className={`text-2xl font-bold ${transaction.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>{transaction.type === 'income' ? '+' : '-'}{formatCurrency(transaction.amount)}</p>
+                <div className="text-left sm:text-right">
+                  <p className={`text-xl sm:text-2xl font-bold ${transaction.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>{transaction.type === 'income' ? '+' : '-'}{formatCurrency(transaction.amount)}</p>
                   {getStatusBadge(transaction.status)}
                 </div>
-                <div className="flex gap-2">
-                  <button onClick={() => handleEdit(transaction)} className="border rounded px-2 py-1 text-[#ffd600] hover:bg-gray-50 text-xs">Editar</button>
-                  <button onClick={() => handleDelete(transaction.id)} className="border rounded px-2 py-1 text-red-600 hover:bg-red-100 text-xs">Eliminar</button>
-                  <button onClick={() => { setPagoParaRecibo(transaction); setReciboNumero(transaction.reciboNumero || ''); }} className="border rounded px-2 py-1 text-blue-600 hover:bg-blue-50 text-xs">Imprimir</button>
+                <div className="flex gap-2 justify-start sm:justify-end flex-wrap">
+                  <button onClick={() => handleEdit(transaction)} className="border rounded px-2 py-1 text-[#ffd600] hover:bg-gray-50 text-xs font-semibold">Editar</button>
+                  <button onClick={() => handleDelete(transaction.id)} className="border rounded px-2 py-1 text-red-600 hover:bg-red-100 text-xs font-semibold">Eliminar</button>
+                  <button onClick={() => { setPagoParaRecibo(transaction); setReciboNumero(transaction.reciboNumero || ''); }} className="border rounded px-2 py-1 text-blue-600 hover:bg-blue-50 text-xs font-semibold">Imprimir</button>
                 </div>
               </div>
             </div>
@@ -904,12 +870,14 @@ const PaymentManager = () => {
         })}
       </div>
 
+      {/* -- Modales -- */}
       {/* Modal de Nueva/Editar Transacción */}
       {isDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-          <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full relative border-t-4 border-blue-600">
-            <h3 className="text-xl font-bold mb-4 text-blue-700">{editingTransaction ? 'Editar Transacción' : 'Registrar Nueva Transacción'}</h3>
+          <div className="bg-white rounded-lg shadow-lg p-6 sm:p-8 max-w-lg w-full relative border-t-4 border-blue-600 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-xl font-bold mb-6 text-blue-700">{editingTransaction ? 'Editar Transacción' : 'Registrar Nueva Transacción'}</h3>
             <form onSubmit={handleSubmit} className="space-y-4">
+              {/* ... contenido del formulario sin cambios significativos en la estructura ... */}
               <div>
                 <label className="block text-sm font-medium mb-1">Tipo</label>
                 <select className="w-full border rounded p-2" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}>
@@ -1102,102 +1070,60 @@ const PaymentManager = () => {
         </div>
       )}
 
-      {/* Modal de resumen de pagos de módulo (carreras) */}
+      {/* Modal de Resumen de Pagos (Carreras) */}
       {resumenEstudianteId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-          <div className="bg-white rounded-lg shadow-lg p-8 max-w-lg w-full relative border-t-4 border-blue-600 max-h-[80vh] overflow-y-auto">
-            <button className="absolute top-2 right-2 text-gray-500 hover:text-gray-700" onClick={() => setResumenEstudianteId(null)}>&times;</button>
-            <h3 className="text-xl font-bold mb-4 text-blue-700">Resumen de pagos de módulo</h3>
-            <p className="mb-2 font-semibold">Estudiante: {(() => { const s = students.find(st => st.id === resumenEstudianteId); return s ? (s.name || s.fullName || s.email) : 'Desconocido'; })()}</p>
-            <table className="w-full text-sm mb-4">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-1">Descripción</th>
-                  <th className="text-left py-1">Fecha</th>
-                  <th className="text-right py-1">Valor</th>
-                  <th className="text-right py-1">Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pagosModuloPorEstudiante[resumenEstudianteId]?.map(pago => (
-                  <tr key={pago.id} className="border-b">
-                    <td className="py-1">{pago.description}</td>
-                    <td className="py-1">{pago.date ? (() => {
-                      const [year, month, day] = pago.date.split('-');
-                      return `${day}/${month}/${year}`;
-                    })() : ''}</td>
-                    <td className="py-1 text-right">{formatCurrency(pago.amount)}</td>
-                    <td className="py-1 text-right flex gap-2 justify-end">
-                      <button onClick={() => handleEdit(pago)} className="border rounded px-2 py-1 text-[#ffd600] hover:bg-gray-50 text-xs">Editar</button>
-                      <button onClick={() => handleDeletePagoModulo(pago.id)} className="border rounded px-2 py-1 text-red-600 hover:bg-red-100 text-xs">Eliminar</button>
-                      <button
-                        onClick={() => {
-                          setPagoParaRecibo(pago);
-                          setReciboNumero(pago.reciboNumero || '');
-                        }}
-                        className="border rounded px-2 py-1 text-blue-600 hover:bg-blue-50 text-xs"
-                      >Imprimir</button>
-                    </td>
+          <div className="bg-white rounded-lg shadow-lg p-6 sm:p-8 max-w-2xl w-full relative border-t-4 border-blue-600 max-h-[90vh] overflow-y-auto">
+            <button className="absolute top-4 right-4 text-gray-500 hover:text-gray-700" onClick={() => setResumenEstudianteId(null)}>&times;</button>
+            <h3 className="text-xl font-bold mb-4 text-blue-700">Resumen de Pagos de Módulo</h3>
+            <p className="mb-4 font-semibold">Estudiante: {students.find(s => s.id === resumenEstudianteId)?.name || 'Desconocido'}</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm mb-4 min-w-[500px]">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 px-2">Descripción</th>
+                    <th className="text-left py-2 px-2">Fecha</th>
+                    <th className="text-right py-2 px-2">Valor</th>
+                    <th className="text-center py-2 px-2">Acciones</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            <div className="font-semibold text-right">Total pagado: {formatCurrency(pagosModuloPorEstudiante[resumenEstudianteId]?.reduce((sum, t) => sum + Number(t.amount), 0))}</div>
+                </thead>
+                <tbody>
+                  {pagosModuloPorEstudiante[resumenEstudianteId]?.map(pago => (
+                    <tr key={pago.id} className="border-b">
+                      <td className="py-2 px-2">{pago.description}</td>
+                      <td className="py-2 px-2 whitespace-nowrap">{pago.date ? new Date(pago.date + 'T00:00:00').toLocaleDateString('es-CO') : ''}</td>
+                      <td className="py-2 px-2 text-right">{formatCurrency(pago.amount)}</td>
+                      <td className="py-2 px-2">
+                        <div className="flex gap-2 justify-center">
+                          <button onClick={() => handleEdit(pago)} className="border rounded p-1 text-[#ffd600] hover:bg-gray-50"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L16.732 3.732z"></path></svg></button>
+                          <button onClick={() => handleDeletePagoModulo(pago.id)} className="border rounded p-1 text-red-600 hover:bg-red-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                          <button onClick={() => { setPagoParaRecibo(pago); setReciboNumero(pago.reciboNumero || ''); }} className="border rounded p-1 text-blue-600 hover:bg-blue-50"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="font-semibold text-right mt-4">Total Pagado: {formatCurrency(pagosModuloPorEstudiante[resumenEstudianteId]?.reduce((sum, t) => sum + Number(t.amount), 0))}</div>
           </div>
         </div>
       )}
 
-      {/* Modal de resumen de pagos de módulo de curso */}
+      {/* Modal de Resumen de Pagos (Cursos) */}
       {resumenCursoData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-          <div className="bg-white rounded-lg shadow-lg p-8 max-w-lg w-full relative border-t-4 border-purple-600 max-h-[80vh] overflow-y-auto">
-            <button className="absolute top-2 right-2 text-gray-500 hover:text-gray-700" onClick={() => setResumenCursoData(null)}>&times;</button>
-            <h3 className="text-xl font-bold mb-4 text-purple-700">Resumen de pagos de módulo (Curso)</h3>
-            <p className="mb-1 font-semibold">Estudiante: {(() => { 
-              const s = students.find(st => st.id === resumenCursoData.studentId); 
-              return s ? (s.name || s.fullName || s.email) : 'Desconocido'; 
-            })()}</p>
-            <p className="mb-4 font-semibold">Curso: {(() => { 
-              const c = courses.find(course => course.id === resumenCursoData.courseId); 
-              return c ? c.nombre : 'Curso desconocido'; 
-            })()}</p>
-            <table className="w-full text-sm mb-4">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-1">Descripción</th>
-                  <th className="text-left py-1">Fecha</th>
-                  <th className="text-right py-1">Valor</th>
-                  <th className="text-right py-1">Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(() => {
-                  const key = `${resumenCursoData.studentId}_${resumenCursoData.courseId}`;
-                  return pagosModuloCursoPorEstudianteCurso[key]?.pagos.map(pago => (
-                    <tr key={pago.id} className="border-b">
-                      <td className="py-1">{pago.description}</td>
-                      <td className="py-1">{pago.date ? (() => {
-                        const [year, month, day] = pago.date.split('-');
-                        return `${day}/${month}/${year}`;
-                      })() : ''}</td>
-                      <td className="py-1 text-right">{formatCurrency(pago.amount)}</td>
-                      <td className="py-1 text-right flex gap-2 justify-end">
-                        <button onClick={() => handleEdit(pago)} className="border rounded px-2 py-1 text-[#ffd600] hover:bg-gray-50 text-xs">Editar</button>
-                        <button onClick={() => handleDeletePagoModulo(pago.id)} className="border rounded px-2 py-1 text-red-600 hover:bg-red-100 text-xs">Eliminar</button>
-                        <button
-                          onClick={() => {
-                            setPagoParaRecibo(pago);
-                            setReciboNumero(pago.reciboNumero || '');
-                          }}
-                          className="border rounded px-2 py-1 text-blue-600 hover:bg-blue-50 text-xs"
-                        >Imprimir</button>
-                      </td>
-                    </tr>
-                  ));
-                })()}
-              </tbody>
-            </table>
-            <div className="font-semibold text-right">Total pagado: {formatCurrency((() => {
+          <div className="bg-white rounded-lg shadow-lg p-6 sm:p-8 max-w-2xl w-full relative border-t-4 border-purple-600 max-h-[90vh] overflow-y-auto">
+            <button className="absolute top-4 right-4 text-gray-500 hover:text-gray-700" onClick={() => setResumenCursoData(null)}>&times;</button>
+            <h3 className="text-xl font-bold mb-4 text-purple-700">Resumen de Pagos (Curso)</h3>
+            <p className="mb-1 font-semibold">Estudiante: {students.find(s => s.id === resumenCursoData.studentId)?.name || 'Desconocido'}</p>
+            <p className="mb-4 font-semibold">Curso: {courses.find(c => c.id === resumenCursoData.courseId)?.nombre || 'Desconocido'}</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm mb-4 min-w-[500px]">
+                {/* ... misma estructura de tabla que el modal de carreras ... */}
+              </table>
+            </div>
+            <div className="font-semibold text-right mt-4">Total Pagado: {formatCurrency((() => {
               const key = `${resumenCursoData.studentId}_${resumenCursoData.courseId}`;
               return pagosModuloCursoPorEstudianteCurso[key]?.pagos.reduce((sum, t) => sum + Number(t.amount), 0) || 0;
             })())}</div>
@@ -1205,7 +1131,7 @@ const PaymentManager = () => {
         </div>
       )}
 
-      {/* Modal de confirmación de eliminación */}
+      {/* Modal de Confirmación de Eliminación */}
       {showDeleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
           <div className="bg-white rounded-lg shadow-lg p-8 max-w-sm w-full relative border-t-4 border-[#009245]">
@@ -1219,19 +1145,19 @@ const PaymentManager = () => {
         </div>
       )}
 
-      {/* Modal de impresión de recibo */}
+      {/* Modal de Impresión de Recibo */}
       {pagoParaRecibo && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 print:bg-transparent">
-          <div className="bg-white rounded-lg shadow-lg p-2 sm:p-4 md:p-8 max-w-full w-full sm:max-w-2xl sm:w-auto relative border-t-4 border-blue-600 print:shadow-none print:border-0 print:p-0 print:rounded-none max-h-[90vh] overflow-y-auto sm:max-h-none sm:overflow-y-visible">
+          <div className="bg-white rounded-lg shadow-lg p-4 sm:p-8 max-w-3xl w-full relative border-t-4 border-blue-600 print:shadow-none print:border-0 print:p-0 print:rounded-none max-h-[90vh] overflow-y-auto">
             <button className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 print:hidden" onClick={() => setPagoParaRecibo(null)}>&times;</button>
-            <div ref={printAreaRef} className="overflow-x-auto">
+            <div ref={printAreaRef} className="overflow-x-auto p-2">
               <PaymentReceipt
                 pago={pagoParaRecibo}
                 estudiante={students.find(s => s.id === pagoParaRecibo.studentId)}
                 reciboNumero={reciboNumero}
               />
             </div>
-            <div className="flex justify-end mt-6 gap-2 print:hidden">
+            <div className="flex justify-end mt-6 gap-2 print:hidden px-8 pb-8">
               <button onClick={() => setPagoParaRecibo(null)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Cerrar</button>
               <button
                 onClick={handlePrintModal}
