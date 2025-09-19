@@ -22,7 +22,7 @@ const VistaCarreras = () => {
   // Formulario Nueva Carrera
   const [formCarrera, setFormCarrera] = useState({ nombre: '', descripcion: '', duracion: 6 });
   // Formulario Nuevo Módulo
-  const [formModulo, setFormModulo] = useState({ nombre: '', profesor: '', sabadosSemana: 1, descripcion: '', semestre: 1 });
+  const [formModulo, setFormModulo] = useState({ nombre: '', profesor: [], sabadosSemana: 1, descripcion: '', semestre: 1 });
   const [editandoModulo, setEditandoModulo] = useState(null);
   // Estado para seminarios obligatorios
   const [modalSeminarios, setModalSeminarios] = useState(false);
@@ -192,7 +192,10 @@ const VistaCarreras = () => {
 
   // Editar módulo: abre modal y carga datos
   const handleEditarModulo = (modulo) => {
-    setFormModulo({ ...modulo });
+    setFormModulo({
+      ...modulo,
+      profesor: Array.isArray(modulo.profesor) ? modulo.profesor : (modulo.profesor ? [modulo.profesor] : [])
+    });
     setEditandoModulo(modulo.id);
     setModalModulo(true);
   };
@@ -223,7 +226,7 @@ const VistaCarreras = () => {
         });
         toast.success('Módulo creado correctamente');
       }
-      setFormModulo({ nombre: '', profesor: '', sabadosSemana: 1, descripcion: '', semestre: 1 });
+      setFormModulo({ nombre: '', profesor: [], sabadosSemana: 1, descripcion: '', semestre: 1 });
       setModalModulo(false);
       setEditandoModulo(null);
       // Esperar a que Firestore propague el cambio antes de recargar
@@ -240,7 +243,7 @@ const VistaCarreras = () => {
   const cerrarModalModulo = () => {
     setModalModulo(false);
     setEditandoModulo(null);
-    setFormModulo({ nombre: '', profesor: '', sabadosSemana: 1, descripcion: '', semestre: 1 });
+    setFormModulo({ nombre: '', profesor: [], sabadosSemana: 1, descripcion: '', semestre: 1 });
   };
 
   // Guardar seminarios en Firestore
@@ -388,7 +391,7 @@ const VistaCarreras = () => {
               </div>
               <button
                 className="bg-green-500 hover:bg-blue-700 text-white px-4 sm:px-5 py-2 rounded-md font-semibold flex items-center gap-2 shadow transition-all w-full sm:w-auto text-base"
-                onClick={() => { setModalModulo(true); setEditandoModulo(null); setFormModulo({ nombre: '', profesor: '', sabadosSemana: 1, descripcion: '', semestre: 1 }); }}
+                onClick={() => { setModalModulo(true); setEditandoModulo(null); setFormModulo({ nombre: '', profesor: [], sabadosSemana: 1, descripcion: '', semestre: 1 }); }}
               >
                 <Add theme="outline" size="20" /> Nuevo Módulo
               </button>
@@ -430,7 +433,7 @@ const VistaCarreras = () => {
                       return (
                         <tr key={idx} className="border-b">
                           <td className="py-2 px-2 font-semibold text-green-900 break-words max-w-[120px] sm:max-w-none">{s.nombre}</td>
-                          <td className="py-2 px-2 text-center break-words max-w-[100px] sm:max-w-none">{s.profesor || <span className='italic text-gray-400'>Sin asignar</span>}</td>
+                          <td className="py-2 px-2 text-center break-words max-w-[100px] sm:max-w-none">{(Array.isArray(s.profesor) ? s.profesor.join(', ') : s.profesor) || <span className='italic text-gray-400'>Sin asignar</span>}</td>
                           <td className="py-2 px-2 text-center">{s.horas}</td>
                           <td className="py-2 px-2 text-center">{s.semestre}</td>
                           <td className="py-2 px-2 text-center">
@@ -464,7 +467,7 @@ const VistaCarreras = () => {
                         <div className="w-full">
                           <div className="font-bold text-xs sm:text-base text-blue-700 break-words">{m.nombre}</div>
                           <div className="text-xs sm:text-sm text-gray-500 mb-1 flex flex-col sm:flex-row gap-1 sm:gap-2">
-                            <span className="font-semibold text-green-600">Profesor:</span> {m.profesor || <span className='italic text-gray-400'>Sin asignar</span>} <span className="hidden sm:inline">|</span> <span className="font-semibold text-green-600">{m.sabadosSemana}</span> sábado(s)/mes
+                            <span className="font-semibold text-green-600">Profesor:</span> {(Array.isArray(m.profesor) ? m.profesor.join(', ') : m.profesor) || <span className='italic text-gray-400'>Sin asignar</span>} <span className="hidden sm:inline">|</span> <span className="font-semibold text-green-600">{m.sabadosSemana}</span> sábado(s)/mes
                           </div>
                           <div className="text-gray-400 text-xs sm:text-sm break-words">{m.descripcion}</div>
                         </div>
@@ -569,16 +572,44 @@ const VistaCarreras = () => {
                 </select>
               </div>
               <div className="md:col-span-2">
-                <label className="block text-blue-700 mb-1 font-semibold">Profesor</label>
-                <select
-                  className="w-full border border-green-500 rounded px-3 py-2 mb-2 text-xs sm:text-base focus:ring-2 focus:ring-blue-600"
-                  value={formModulo.profesor}
-                  onChange={e => setFormModulo({ ...formModulo, profesor: e.target.value })}
-                >
-                  <option value="">Sin asignar</option>
-                  {profesores.map(p => (
-                    <option key={p.id} value={p.name + ' ' + (p.lastName || '')}>{p.name} {p.lastName}</option>
+                <label className="block text-blue-700 mb-1 font-semibold">Profesores Asignados</label>
+                <div className="flex flex-wrap gap-2 mb-2 p-2 border border-gray-300 rounded-md min-h-[40px]">
+                  {formModulo.profesor.map(pName => (
+                    <div key={pName} className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full flex items-center gap-2 text-sm">
+                      <span>{pName}</span>
+                      <button
+                        type="button"
+                        className="text-blue-600 hover:text-blue-800 font-bold"
+                        onClick={() => setFormModulo(prev => ({ ...prev, profesor: prev.profesor.filter(name => name !== pName) }))}
+                      >
+                        &times;
+                      </button>
+                    </div>
                   ))}
+                  {formModulo.profesor.length === 0 && <span className="text-gray-400 italic">Ningún profesor asignado</span>}
+                </div>
+
+                <label className="block text-blue-700 mb-1 font-semibold">Añadir Profesor</label>
+                <select
+                  className="w-full border border-green-500 rounded px-3 py-2 text-xs sm:text-base focus:ring-2 focus:ring-blue-600"
+                  value=""
+                  onChange={e => {
+                    const selectedTeacher = e.target.value;
+                    if (selectedTeacher && !formModulo.profesor.includes(selectedTeacher)) {
+                      setFormModulo(prev => ({ ...prev, profesor: [...prev.profesor, selectedTeacher] }));
+                    }
+                  }}
+                >
+                  <option value="">-- Seleccionar para añadir --</option>
+                  {profesores
+                    .filter(p => {
+                      const fullName = `${p.name} ${p.lastName || ''}`.trim();
+                      return !formModulo.profesor.includes(fullName);
+                    })
+                    .map(p => {
+                      const fullName = `${p.name} ${p.lastName || ''}`.trim();
+                      return <option key={p.id} value={fullName}>{fullName}</option>
+                    })}
                 </select>
               </div>
               <div>

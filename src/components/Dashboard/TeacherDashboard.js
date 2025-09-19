@@ -63,14 +63,9 @@ const TeacherDashboard = () => {
           return;
         }
 
-        // Normalizar identificadores para coincidencia de módulos
-        const teacherEmails = [teacher.email?.toLowerCase()].filter(Boolean);
-        const teacherNames = [
-          (teacher.name + ' ' + (teacher.lastName || '')).trim().toLowerCase().replace(/\s+/g, ' '),
-          teacher.name?.toLowerCase(),
-        ].filter(Boolean);
+        const teacherFullName = (teacher.name + ' ' + (teacher.lastName || '')).trim();
 
-        // Obtener módulos asignados por email o nombre
+        // Obtener módulos asignados
         const careersSnap = await getDocs(collection(db, 'careers'));
         let modulos = [];
         let carreras = new Set();
@@ -81,15 +76,21 @@ const TeacherDashboard = () => {
           const modulesSnap = await getDocs(collection(db, 'careers', careerDoc.id, 'modules'));
           modulesSnap.forEach(moduleDoc => {
             const modulo = moduleDoc.data();
-            // Normalizar campo profesor
-            const moduloProfesor = (modulo.profesor || '').trim().toLowerCase().replace(/\s+/g, ' ');
-            const moduloProfesorEmail = (modulo.profesorEmail || '').toLowerCase();
-            // Coincidencia por email o nombre
-            if (
-              (moduloProfesor && teacherNames.includes(moduloProfesor)) ||
-              (moduloProfesorEmail && teacherEmails.includes(moduloProfesorEmail)) ||
-              (teacherEmails.length && modulo.profesor && teacherEmails.includes(modulo.profesor.toLowerCase()))
-            ) {
+            let isAssigned = false;
+
+            if (Array.isArray(modulo.profesor)) {
+              // New format: array of names. Check if teacher's full name is in the array.
+              if (modulo.profesor.map(p => (p || '').trim()).includes(teacherFullName)) {
+                isAssigned = true;
+              }
+            } else if (typeof modulo.profesor === 'string') {
+              // Old format: single name string.
+              if ((modulo.profesor || '').trim() === teacherFullName) {
+                isAssigned = true;
+              }
+            }
+
+            if (isAssigned) {
               modulos.push({
                 id: moduleDoc.id,
                 ...modulo,
