@@ -106,29 +106,50 @@ const AttendanceManager = () => {
       const batch = writeBatch(db);
       let updateCount = 0;
 
-      // Obtener todas las asistencias
+      // Para añadir la carrera, necesitamos un mapa de estudiantes.
+      const studentsSnap = await getDocs(collection(db, 'students'));
+      const studentsMap = new Map();
+      studentsSnap.forEach(doc => {
+        studentsMap.set(doc.id, doc.data());
+      });
+
       const snapshot = await getDocs(attendanceRef);
 
       snapshot.forEach((document) => {
         const data = document.data();
-        // Solo migrar si no tiene periodo o semestre asignado
-        if (!data.period || !data.semester) {
-          batch.update(document.ref, {
-            period: '2025-1',
-            semester: '1'
-          });
+        const updates = {};
+
+        // Asignar período y semestre por defecto si no existen.
+        if (!data.period) {
+          updates.period = '2025-1';
+        }
+        if (!data.semester) {
+          updates.semester = '1';
+        }
+
+        // Asignar carrera si no existe, basándose en el estudiante.
+        if (!data.carrera && data.studentId) {
+          const student = studentsMap.get(data.studentId);
+          if (student && student.career) {
+            updates.carrera = student.career;
+          }
+        }
+        
+        // Si hay algo que actualizar, se añade al batch.
+        if (Object.keys(updates).length > 0) {
+          batch.update(document.ref, updates);
           updateCount++;
         }
       });
 
       if (updateCount > 0) {
         await batch.commit();
-        console.log(`Migradas ${updateCount} asistencias al período 2025-1, semestre 1`);
-        toast.success(`Se han migrado ${updateCount} registros de asistencia al período 2025-1, semestre 1`);
+        console.log(`Se migraron/actualizaron ${updateCount} registros de asistencia.`);
+        toast.success(`Se han actualizado ${updateCount} registros de asistencia con datos faltantes.`);
       }
     } catch (error) {
       console.error('Error al migrar asistencias:', error);
-      toast.error('Error al migrar las asistencias al nuevo período');
+      toast.error('Error al intentar migrar los registros de asistencia.');
     }
   };
 
@@ -186,24 +207,25 @@ const AttendanceManager = () => {
           const modulesSnap = await getDocs(collection(db, 'careers', careerDoc.id, 'modules'));
           modulesSnap.forEach(moduleDoc => {
             const modulo = moduleDoc.data();
-            const moduloProfesor = (modulo.profesor || '').trim().toLowerCase().replace(/\s+/g, ' ');
-            const moduloProfesorEmail = (modulo.profesorEmail || '').toLowerCase();
-            const teacherEmails = [teacher.email?.toLowerCase()].filter(Boolean);
-            const teacherNames = [
-              (teacher.name + ' ' + (teacher.lastName || '')).trim().toLowerCase().replace(/\s+/g, ' '),
-              teacher.name?.toLowerCase(),
-            ].filter(Boolean);
+            const teacherFullName = (teacher.name + ' ' + (teacher.lastName || '')).trim();
+
+            // Handle both array of professors and single professor string
+            const profesoresAsignados = Array.isArray(modulo.profesor)
+              ? modulo.profesor
+              : (typeof modulo.profesor === 'string' ? [modulo.profesor] : []);
+
+            const isProfessorMatch = profesoresAsignados.some(p => (p || '').trim() === teacherFullName);
             
+            // Fallback for email match for older data
+            const teacherEmail = teacher.email?.toLowerCase();
+            const moduloProfesorEmail = (modulo.profesorEmail || '').toLowerCase();
+            const isEmailMatch = teacherEmail && moduloProfesorEmail === teacherEmail;
+
             // Verificar si el módulo corresponde al semestre seleccionado
             const moduloSemestre = String(modulo.semestre || modulo.semester);
             const semestreMatch = !selectedSemester || moduloSemestre === selectedSemester;
             
-            if (
-              semestreMatch &&
-              ((moduloProfesor && teacherNames.includes(moduloProfesor)) ||
-              (moduloProfesorEmail && teacherEmails.includes(moduloProfesorEmail)) ||
-              (teacherEmails.length && modulo.profesor && teacherEmails.includes(modulo.profesor.toLowerCase())))
-            ) {
+            if (semestreMatch && (isProfessorMatch || isEmailMatch)) {
               teacherCareers.add(carrera.nombre);
               teacherModules.push({
                 ...modulo,
@@ -366,73 +388,73 @@ const AttendanceManager = () => {
     const fetchAttendanceRecords = async () => {
       try {
         setLoading(true);
-        let studentsArr = [];
-        
-        // Cargar estudiantes según la carrera seleccionada
-        if (selectedCareer === 'Todos' || !selectedCareer) {
-          const studentsSnap = await getDocs(collection(db, 'students'));
-          studentsSnap.forEach(doc => studentsArr.push({ id: doc.id, ...doc.data() }));
+
+        // Se necesita la lista completa de estudiantes para buscar nombres y carreras en la tabla.
+        const studentsSnap = await getDocs(collection(db, 'students'));
+        const studentsArr = studentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setStudents(studentsArr);
+
+        // Construir la consulta a Firestore para asistencias de forma dinámica y robusta.
+        const queryConstraints = [];
+
+        // Siempre se filtra por período.
+        if (selectedPeriod) {
+          queryConstraints.push(where('period', '==', selectedPeriod));
         } else {
-          const studentsSnap = await getDocs(query(collection(db, 'students'), where('career', '==', selectedCareer)));
-          studentsSnap.forEach(doc => studentsArr.push({ id: doc.id, ...doc.data() }));
+          // Si no hay período, no se muestra nada para evitar cargar toda la base de datos.
+          setAttendanceRecords([]);
+          setLoading(false);
+          return;
         }
 
-        // Filtrar estudiantes por semestre
-        const filteredStudents = studentsArr.filter(student => {
-          const studentSemester = String(student.semester || student.semestre || '1');
-          return !selectedSemester || studentSemester === String(selectedSemester);
-        });
-
-        setStudents(filteredStudents);
-      
-        // Traer asistencias según filtro de módulo, período y semestre
-        let attArr = [];
-        const attSnap = await getDocs(collection(db, 'attendance'));
-        
-        console.log('Buscando asistencias con:', {
-          periodo: selectedPeriod,
-          semestre: selectedSemester,
-          modulo: filterModule
-        });
-
-        attSnap.forEach(docu => {
-          const data = docu.data();
-          // Convertir semester a string para comparación consistente
-          const semester = String(data.semester || '1');
-          
-          const matchesPeriod = data.period === selectedPeriod;
-          const matchesSemester = !selectedSemester || semester === String(selectedSemester);
-          const matchesModule = !filterModule || data.moduleName === filterModule;
-          const matchesScope = selectedScope === 'career' ? (data.scope !== 'course') : (data.scope === 'course');
-          const matchesCourse = selectedScope === 'course' ? (!selectedCourse || data.courseId === selectedCourse) : true;
-
-          if (matchesPeriod && matchesSemester && matchesModule && matchesScope && matchesCourse) {
-            attArr.push({ 
-              id: docu.id, 
-              ...data,
-              semester: semester // Asegurar que semester sea string
-            });
+        if (selectedScope === 'career') {
+          // Ámbito carrera: filtrar por carrera y semestre.
+          if (selectedCareer && selectedCareer !== 'Todos') {
+            queryConstraints.push(where('carrera', '==', selectedCareer));
           }
-        });
+          if (selectedSemester) {
+            queryConstraints.push(where('semester', '==', String(selectedSemester)));
+          }
+        } else {
+          // Ámbito curso: filtrar por ID de curso.
+          queryConstraints.push(where('scope', '==', 'course'));
+          if (selectedCourse) {
+            queryConstraints.push(where('courseId', '==', selectedCourse));
+          }
+        }
 
-        console.log('Registros encontrados:', attArr.length, attArr);
-        setAttendanceRecords(attArr);
+        if (filterModule) {
+          queryConstraints.push(where('moduleName', '==', filterModule));
+        }
 
-        // Mostrar mensaje si no hay asistencias en el semestre seleccionado
-        if (attArr.length === 0 && selectedSemester) {
-          toast.info(`No hay registros de asistencia en el semestre ${selectedSemester}`);
+        const attendanceQuery = query(collection(db, 'attendance'), ...queryConstraints);
+        const attSnap = await getDocs(attendanceQuery);
+        
+        const finalAttendanceRecords = attSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+          .filter(data => {
+            // Filtro adicional en el cliente para el ámbito de carrera, por si algún dato antiguo no tiene 'carrera'.
+            if (selectedScope === 'career' && data.scope === 'course') {
+              return false;
+            }
+            return true;
+          });
+        
+        setAttendanceRecords(finalAttendanceRecords);
+
+        if (finalAttendanceRecords.length === 0 && (selectedSemester || (selectedCareer && selectedCareer !== 'Todos') || filterModule)) {
+          toast.info('No se encontraron registros de asistencia para los filtros seleccionados.');
         }
 
       } catch (error) {
-        console.error('Error al cargar datos:', error);
-        toast.error('Error al cargar los datos');
+        console.error('Error al cargar datos de asistencia:', error);
+        toast.error('Error al cargar los registros de asistencia.');
       } finally {
         setLoading(false);
       }
     };
 
     fetchAttendanceRecords();
-  }, [selectedCareer, year, month, showModal, currentUser, filterModule, selectedSemester, selectedPeriod]);
+  }, [selectedCareer, selectedCourse, filterModule, selectedSemester, selectedPeriod, selectedScope]);
 
   const saturdays = getSaturdays(year, month);
   // Sábados del mes siguiente
