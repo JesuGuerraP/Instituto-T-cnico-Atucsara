@@ -103,17 +103,27 @@ const GradeManager = () => {
           return;
         }
         
-        const teacherFullName = (teacher.name + ' ' + (teacher.lastName || '')).trim().toLowerCase();
+        const teacherFullName = (teacher.name + ' ' + (teacher.lastName || '')).trim();
         
         const assignedModules = allModules.filter(m => {
             if (m.source === 'career') {
-                const moduleProfesor = (m.profesor || '').trim().toLowerCase();
-                const moduleProfesorEmail = (m.profesorEmail || '').toLowerCase();
-                return moduleProfesor.includes(teacherFullName) || (teacher.email && moduleProfesorEmail === teacher.email.toLowerCase());
+                const moduleProfesor = m.profesor;
+                let isMatch = false;
+                if (Array.isArray(moduleProfesor)) {
+                    isMatch = moduleProfesor.map(p => (p || '').trim()).includes(teacherFullName);
+                } else if (typeof moduleProfesor === 'string') {
+                    isMatch = (moduleProfesor || '').trim() === teacherFullName;
+                }
+                
+                if (!isMatch && m.profesorEmail && teacher.email) {
+                    isMatch = m.profesorEmail.toLowerCase() === teacher.email.toLowerCase();
+                }
+                return isMatch;
             }
             if (m.source === 'course') {
+                const teacherFullNameLower = teacherFullName.toLowerCase();
                 const moduleProfesorCourse = (m.profesorNombre || '').toLowerCase().trim();
-                return m.profesorId === teacher.id || moduleProfesorCourse.includes(teacherFullName);
+                return m.profesorId === teacher.id || moduleProfesorCourse.includes(teacherFullNameLower);
             }
             return false;
         });
