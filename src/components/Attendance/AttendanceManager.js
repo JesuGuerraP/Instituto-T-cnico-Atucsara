@@ -99,6 +99,7 @@ const AttendanceManager = () => {
   const [filterModule, setFilterModule] = useState('');
   // Lista global de módulos para el filtro
   const [allModuleNames, setAllModuleNames] = useState([]);
+  const [studentToEdit, setStudentToEdit] = useState(null);
 
   const migrateAttendanceRecords = async () => {
     try {
@@ -473,8 +474,9 @@ const AttendanceManager = () => {
   };
 
   const handleSave = async () => {
-    if (!students.length || !moduleName) {
-      toast.error('Debes ingresar el nombre del módulo.');
+    const studentsToSave = getFilteredStudentsForAttendance();
+    if (studentsToSave.length === 0 || !moduleName) {
+      toast.error('No hay estudiantes en la lista o falta el nombre del módulo.');
       return;
     }
     if (!selectedPeriod) {
@@ -487,9 +489,14 @@ const AttendanceManager = () => {
     }
     try {
       // Guardar solo la asistencia de los estudiantes que tengan algún valor marcado (asistió/no asistió en al menos una fecha)
-      const studentsWithAttendance = getFilteredStudentsForAttendance().filter(student => 
+      const studentsWithAttendance = studentsToSave.filter(student => 
         attendance[student.id] && Object.keys(attendance[student.id]).length > 0
       );
+
+      if (studentsWithAttendance.length === 0) {
+        toast.info('No se encontraron cambios en la asistencia para guardar.');
+        return;
+      }
       
       for (const student of studentsWithAttendance) {
         // Leer asistencia previa (si existe)
@@ -514,7 +521,7 @@ const AttendanceManager = () => {
         }
         // Eliminar fechas que ya no están en attendance[student.id]
         for (const dateStr of Object.keys(prevAttendance)) {
-          if (!(dateStr in attendance[student.id])) {
+          if (!(dateStr in (attendance[student.id] || {}))) {
             hasChanges = true;
             delete mergedAttendance[dateStr];
           }
@@ -524,25 +531,31 @@ const AttendanceManager = () => {
           if (Object.keys(mergedAttendance).length === 0) {
             await deleteDoc(docRef);
           } else {
-            await setDoc(docRef, {
+            const dataToSave = {
               studentId: student.id,
               moduleName,
               attendance: mergedAttendance,
               period: selectedPeriod,
               semester: selectedSemester,
-              carrera: selectedScope === 'career' ? student.career : undefined,
               scope: selectedScope,
-              courseId: selectedScope === 'course' ? selectedCourse : undefined,
-              courseName: selectedScope === 'course' ? (coursesList.find(c => c.id === selectedCourse)?.nombre || '') : undefined,
               studentName: `${student.name} ${student.lastName || ''}`.trim(),
               updatedBy: currentUser.uid,
               updatedAt: new Date().toISOString(),
-            });
+            };
+
+            if (selectedScope === 'career') {
+              dataToSave.carrera = student.career;
+            } else { // scope === 'course'
+              dataToSave.courseId = selectedCourse;
+              dataToSave.courseName = coursesList.find(c => c.id === selectedCourse)?.nombre || '';
+            }
+            await setDoc(docRef, dataToSave);
           }
         }
       }
       toast.success('Asistencia guardada correctamente');
     } catch (e) {
+      console.error("Error saving attendance:", e);
       toast.error('Error al guardar la asistencia');
     }
   };
@@ -719,6 +732,7 @@ const AttendanceManager = () => {
 
   // Filtrar estudiantes por semestre y módulo seleccionado
   const getFilteredStudentsForAttendance = () => {
+    if (editStudentId && studentToEdit) return [studentToEdit];
     return students.filter(student => {
       const studentSemester = String(student.semester || student.semestre || '1');
       
@@ -786,9 +800,13 @@ const AttendanceManager = () => {
       setMonth(Number(m) - 1);
     }
     setSelectedCareer(student.career);
+    if (rec.semester) {
+      setSelectedSemester(String(rec.semester));
+    }
     setSelectedStudent(student.id);
     setAttendance(prev => ({ ...prev, [student.id]: rec.attendance || {} }));
     setEditStudentId(student.id);
+    setStudentToEdit(student);
   };
 
   // --- CORRECCIÓN FINAL: Sincronizar el valor del select de módulo al abrir el modal (rol teacher) ---
@@ -847,6 +865,7 @@ const AttendanceManager = () => {
             setSelectedModule('');
             setSelectedStudent('');
             setEditStudentId(null);
+            setStudentToEdit(null);
             setAttendance({}); // Limpiar todas las asistencias al abrir el modal
             // Establecer mes y año actual
             const now = new Date();
@@ -939,8 +958,7 @@ const AttendanceManager = () => {
                 className="p-2 text-[#009245] hover:bg-green-50 rounded-lg transition-colors flex items-center gap-1"
                 title="Agregar nuevo período académico"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
                 </svg>
                 <span className="text-sm">Nuevo Período</span>
               </button>
@@ -1016,7 +1034,7 @@ const AttendanceManager = () => {
           <label className="block text-sm font-semibold mb-1 text-[#23408e]">Filtrar por módulo</label>
           <select className="w-full border border-[#23408e] rounded px-2 py-2 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-sm" value={filterModule} onChange={e => setFilterModule(e.target.value)}>
             <option value="">Todos</option>
-            {(
+            { (
               selectedCareer && selectedCareer !== 'Todos' && careerModules.length > 0
                 ? careerModules
                     .filter(m => !selectedSemester || String(m.semestre || m.semester) === selectedSemester)
@@ -1030,7 +1048,7 @@ const AttendanceManager = () => {
           </select>
         </div>
       </div>
-      {/* Tabla de información de asistencia */}
+      {/*Tabla de información de asistencia */}
       {loading ? (
         <div className="text-center py-8 text-gray-600">Cargando...</div>
       ) : attendanceRecords.length === 0 ? (
@@ -1051,82 +1069,82 @@ const AttendanceManager = () => {
             <thead className="sticky top-0 z-10">
               <tr className="bg-[#23408e] text-white">
                 <th className="px-4 py-2 text-left font-semibold">{selectedScope === 'course' ? 'Curso' : 'Carrera'}</th>
-              <th className="px-4 py-2 text-center font-semibold">Módulo</th>
-              <th className="px-4 py-2 text-center font-semibold">Estudiante</th>
-              <th className="px-4 py-2 text-center font-semibold">Sábados</th>
-              <th className="px-4 py-2 text-center font-semibold">Asistencias</th>
-              <th className="px-4 py-2 text-center font-semibold">Registrado por</th>
-              <th className="px-4 py-2 text-center font-semibold">Última actualización</th>
-              <th className="px-4 py-2 text-center font-semibold">Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {/* Agrupar por carrera y módulo */}
-            {(() => {
-              // Filtrar registros por módulo si está seleccionado
-              let filteredRecords = filterModule
-                ? attendanceRecords.filter(r => r.moduleName === filterModule)
-                : attendanceRecords;
-              // Agrupar por carrera/curso, luego por módulo
-              const grouped = {};
-              filteredRecords.forEach(rec => {
-                const student = students.find(s => s.id === rec.studentId);
-                if (!student) return;
-                const key = selectedScope === 'course' ? (rec.courseName || 'Curso') : (student.career || 'Sin carrera');
-                if (!grouped[key]) grouped[key] = {};
-                if (!grouped[key][rec.moduleName]) grouped[key][rec.moduleName] = [];
-                grouped[key][rec.moduleName].push({ ...rec, student });
-              });
-              // Renderizar agrupado
-              return Object.entries(grouped).map(([groupKey, modules]) => (
-                Object.entries(modules).map(([modName, records]) => (
-                  records.map((rec, idx) => {
-                    let totalSab = 0;
-                    let asistidos = 0;
-                    Object.entries(rec.attendance || {}).forEach(([dateStr, val]) => {
-                      totalSab++;
-                      if (val === true) asistidos++;
-                    });
-                    return (
-                      <tr key={rec.id} className="border-b hover:bg-[#f0f6ff]">
-                        <td className="px-4 py-2 font-semibold whitespace-nowrap text-[#23408e]">{groupKey}</td>
-                        <td className="px-4 py-2 text-center text-[#009245] font-semibold">{modName}</td>
-                        <td className="px-4 py-2 font-semibold whitespace-nowrap text-[#23408e]">{rec.student.name} {rec.student.lastName}</td>
-                        <td className="px-4 py-2 text-center">{totalSab}</td>
-                        <td className="px-4 py-2 text-center">
-                          <span className="inline-block px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 mr-2">{asistidos} Asistió</span>
-                          <span className="inline-block px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">{totalSab - asistidos} No asistió</span>
-                        </td>
-                        <td className="px-4 py-2 text-center text-xs text-gray-700">{
-                          (() => {
-                            const user = users.find(u => u.id === rec.updatedBy);
-                            return user ? `${user.name || ''} ${user.lastName || ''}`.trim() : rec.updatedBy;
-                          })()
-                        }</td>
-                        <td className="px-4 py-2 text-center text-xs text-gray-500">{rec.updatedAt ? new Date(rec.updatedAt).toLocaleString('es-CO') : '-'}</td>
-                        <td className="px-4 py-2 text-center flex flex-wrap gap-2 justify-center">
-                          <button
-                            className="border rounded px-2 py-1 text-[#23408e] hover:bg-gray-50 text-xs font-semibold"
-                            onClick={() => { setDetailRecord({ ...rec, student: rec.student }); setShowDetailModal(true); }}
-                          >Ver</button>
-                          <button
-                            className="border rounded px-2 py-1 text-[#009245] hover:bg-blue-50 text-xs font-semibold"
-                            onClick={() => handleUpdateClick(rec, rec.student)}
-                          >Actualizar</button>
-                          <button
-                            className="border rounded px-2 py-1 text-red-600 hover:bg-red-100 text-xs font-semibold"
-                            onClick={() => { setDeleteRecord(rec); setShowDeleteModal(true); }}
-                          >Eliminar</button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                ))
-              ));
-            })()}
-          </tbody>
-        </table>
-      </div>
+                <th className="px-4 py-2 text-center font-semibold">Módulo</th>
+                <th className="px-4 py-2 text-center font-semibold">Estudiante</th>
+                <th className="px-4 py-2 text-center font-semibold">Sábados</th>
+                <th className="px-4 py-2 text-center font-semibold">Asistencias</th>
+                <th className="px-4 py-2 text-center font-semibold">Registrado por</th>
+                <th className="px-4 py-2 text-center font-semibold">Última actualización</th>
+                <th className="px-4 py-2 text-center font-semibold">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {/* Agrupar por carrera y módulo */}
+              {(() => {
+                // Filtrar registros por módulo si está seleccionado
+                let filteredRecords = filterModule
+                  ? attendanceRecords.filter(r => r.moduleName === filterModule)
+                  : attendanceRecords;
+                // Agrupar por carrera/curso, luego por módulo
+                const grouped = {};
+                filteredRecords.forEach(rec => {
+                  const student = students.find(s => s.id === rec.studentId);
+                  if (!student) return;
+                  const key = selectedScope === 'course' ? (rec.courseName || 'Curso') : (student.career || 'Sin carrera');
+                  if (!grouped[key]) grouped[key] = {};
+                  if (!grouped[key][rec.moduleName]) grouped[key][rec.moduleName] = [];
+                  grouped[key][rec.moduleName].push({ ...rec, student });
+                });
+                // Renderizar agrupado
+                return Object.entries(grouped).map(([groupKey, modules]) => (
+                  Object.entries(modules).map(([modName, records]) => (
+                    records.map((rec, idx) => {
+                      let totalSab = 0;
+                      let asistidos = 0;
+                      Object.entries(rec.attendance || {}).forEach(([dateStr, val]) => {
+                        totalSab++;
+                        if (val === true) asistidos++;
+                      });
+                      return (
+                        <tr key={rec.id} className="border-b hover:bg-[#f0f6ff]">
+                          <td className="px-4 py-2 font-semibold whitespace-nowrap text-[#23408e]">{groupKey}</td>
+                          <td className="px-4 py-2 text-center text-[#009245] font-semibold">{modName}</td>
+                          <td className="px-4 py-2 font-semibold whitespace-nowrap text-[#23408e]">{rec.student.name} {rec.student.lastName}</td>
+                          <td className="px-4 py-2 text-center">{totalSab}</td>
+                          <td className="px-4 py-2 text-center">
+                            <span className="inline-block px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 mr-2">{asistidos} Asistió</span>
+                            <span className="inline-block px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">{totalSab - asistidos} No asistió</span>
+                          </td>
+                          <td className="px-4 py-2 text-center text-xs text-gray-700">{
+                            (() => {
+                              const user = users.find(u => u.id === rec.updatedBy);
+                              return user ? `${user.name || ''} ${user.lastName || ''}`.trim() : rec.updatedBy;
+                            })()
+                          }</td>
+                          <td className="px-4 py-2 text-center text-xs text-gray-500">{rec.updatedAt ? new Date(rec.updatedAt).toLocaleString('es-CO') : '-'}</td>
+                          <td className="px-4 py-2 text-center flex flex-wrap gap-2 justify-center">
+                            <button
+                              className="border rounded px-2 py-1 text-[#23408e] hover:bg-gray-50 text-xs font-semibold"
+                              onClick={() => { setDetailRecord({ ...rec, student: rec.student }); setShowDetailModal(true); }}
+                            >Ver</button>
+                            <button
+                              className="border rounded px-2 py-1 text-[#009245] hover:bg-blue-50 text-xs font-semibold"
+                              onClick={() => handleUpdateClick(rec, rec.student)}
+                            >Actualizar</button>
+                            <button
+                              className="border rounded px-2 py-1 text-red-600 hover:bg-red-100 text-xs font-semibold"
+                              onClick={() => { setDeleteRecord(rec); setShowDeleteModal(true); }}
+                            >Eliminar</button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ))
+                ));
+              })()}
+            </tbody>
+          </table>
+        </div>
       )}
       {/* Modal para registrar asistencia */}
       <Modal
@@ -1136,6 +1154,7 @@ const AttendanceManager = () => {
           setSelectedStudent('');
           setModuleName('');
           setEditStudentId(null); // Limpiar modo edición
+          setStudentToEdit(null);
         }}
         contentLabel="Registrar Asistencia"
         className="modal-center max-w-[900px] min-w-[65vw] w-[75vw] bg-white rounded-2xl shadow-2xl p-2 sm:p-10 border-t-8 border-[#009245] overflow-y-auto max-h-[90vh]"
@@ -1371,7 +1390,7 @@ const AttendanceManager = () => {
         </div>
         <div className="flex justify-end mt-10">
           <button
-            onClick={async () => { await handleSave(); setShowModal(false); setEditStudentId(null); }}
+            onClick={async () => { await handleSave(); setShowModal(false); setEditStudentId(null); setStudentToEdit(null); }}
             className="bg-[#009245] hover:bg-[#23408e] text-white font-semibold px-8 sm:px-12 py-4 rounded-xl shadow-lg text-lg sm:text-xl w-full sm:w-auto transition-all duration-200"
             disabled={loading}
           >
@@ -1385,8 +1404,8 @@ const AttendanceManager = () => {
           isOpen={showDetailModal}
           onRequestClose={() => setShowDetailModal(false)}
           contentLabel="Detalle de Asistencia"
-          className="modal-center max-w-2xl w-full bg-white rounded-lg shadow-lg p-8 border-t-4 border-[#009245] animate-fadeIn"
-          overlayClassName="overlay-center bg-black bg-opacity-40"
+          className="modal-center max-w-2xl w-full bg-white rounded-lg shadow-lg p-8 border-t-4 border-[#009245] animate-fadeIn overflow-y-auto max-h-[90vh]"
+          overlayClassName="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 z-50"
         >
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-2xl font-bold text-[#23408e] flex items-center gap-2">
@@ -1445,7 +1464,7 @@ const AttendanceManager = () => {
           onRequestClose={() => setShowDeleteModal(false)}
           contentLabel="Eliminar asistencia"
           className="modal-center max-w-md w-full bg-white rounded-lg shadow-lg p-8 border-t-4 border-[#d32f2f]"
-          overlayClassName="overlay-center bg-black bg-opacity-40"
+          overlayClassName="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50"
         >
           <h3 className="text-lg font-bold mb-4 text-[#d32f2f]">¿Eliminar registro de asistencia?</h3>
           <p className="mb-6 text-gray-700">Esta acción no se puede deshacer. ¿Deseas continuar?</p>
