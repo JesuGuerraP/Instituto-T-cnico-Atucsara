@@ -1,26 +1,16 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext, useCallback } from 'react';
 import { db } from '../../firebaseConfig';
 import { collection, query, where, getDocs, setDoc, doc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { AuthContext } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import Modal from 'react-modal';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 
 const months = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
 ];
-
-function getSaturdays(year, month) {
-  const saturdays = [];
-  const date = new Date(year, month, 1);
-  while (date.getMonth() === month) {
-    if (date.getDay() === 6) {
-      saturdays.push(new Date(date));
-    }
-    date.setDate(date.getDate() + 1);
-  }
-  return saturdays;
-}
 
 const AttendanceManager = () => {
   const DEFAULT_PERIOD = '2025-1';
@@ -31,6 +21,7 @@ const AttendanceManager = () => {
   const [selectedModule, setSelectedModule] = useState('');
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth());
+  const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedPeriod, setSelectedPeriod] = useState(DEFAULT_PERIOD);
   const [selectedSemester, setSelectedSemester] = useState('');
   const [academicPeriods, setAcademicPeriods] = useState([DEFAULT_PERIOD]);
@@ -79,8 +70,6 @@ const AttendanceManager = () => {
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
   }
-  // Estado para mostrar sábados del mes siguiente
-  const [showNextMonthSaturdays, setShowNextMonthSaturdays] = useState(false);
   const [loading, setLoading] = useState(true);
   const [careers, setCareers] = useState([]);
   const [selectedCareer, setSelectedCareer] = useState('');
@@ -94,6 +83,7 @@ const AttendanceManager = () => {
   const [deleteRecord, setDeleteRecord] = useState(null);
   const [careerModules, setCareerModules] = useState([]);
   const [modulesForCareer, setModulesForCareer] = useState([]);
+  const [teacherModules, setTeacherModules] = useState([]); // Nuevo: para módulos del profesor
   const [editStudentId, setEditStudentId] = useState(null); // Nuevo: para saber si se está editando un estudiante
   // Filtro de módulo para la tabla principal
   const [filterModule, setFilterModule] = useState('');
@@ -282,6 +272,7 @@ const AttendanceManager = () => {
         setStudents(filteredStudents);
         setCareerModules(teacherModules);
         setModulesForCareer(teacherModules);
+        setTeacherModules(teacherModules); // Guardar los módulos del profesor
         setLoading(false);
       } else {
         // Admin/secretary: mostrar todo, pero filtrar por semestre
@@ -385,92 +376,86 @@ const AttendanceManager = () => {
     fetchAllModules();
   }, []);
 
-  useEffect(() => {
-    const fetchAttendanceRecords = async () => {
-      try {
-        setLoading(true);
+  const fetchAttendanceRecords = useCallback(async () => {
+    try {
+      setLoading(true);
 
-        // Se necesita la lista completa de estudiantes para buscar nombres y carreras en la tabla.
-        const studentsSnap = await getDocs(collection(db, 'students'));
-        const studentsArr = studentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setStudents(studentsArr);
+      // Se necesita la lista completa de estudiantes para buscar nombres y carreras en la tabla.
+      const studentsSnap = await getDocs(collection(db, 'students'));
+      const studentsArr = studentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setStudents(studentsArr);
 
-        // Construir la consulta a Firestore para asistencias de forma dinámica y robusta.
-        const queryConstraints = [];
+      // Construir la consulta a Firestore para asistencias de forma dinámica y robusta.
+      const queryConstraints = [];
 
-        // Siempre se filtra por período.
-        if (selectedPeriod) {
-          queryConstraints.push(where('period', '==', selectedPeriod));
-        } else {
-          // Si no hay período, no se muestra nada para evitar cargar toda la base de datos.
-          setAttendanceRecords([]);
-          setLoading(false);
-          return;
-        }
-
-        if (selectedScope === 'career') {
-          // Ámbito carrera: filtrar por carrera y semestre.
-          if (selectedCareer && selectedCareer !== 'Todos') {
-            queryConstraints.push(where('carrera', '==', selectedCareer));
-          }
-          if (selectedSemester) {
-            queryConstraints.push(where('semester', '==', String(selectedSemester)));
-          }
-        } else {
-          // Ámbito curso: filtrar por ID de curso.
-          queryConstraints.push(where('scope', '==', 'course'));
-          if (selectedCourse) {
-            queryConstraints.push(where('courseId', '==', selectedCourse));
-          }
-        }
-
-        if (filterModule) {
-          queryConstraints.push(where('moduleName', '==', filterModule));
-        }
-
-        const attendanceQuery = query(collection(db, 'attendance'), ...queryConstraints);
-        const attSnap = await getDocs(attendanceQuery);
-        
-        const finalAttendanceRecords = attSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-          .filter(data => {
-            // Filtro adicional en el cliente para el ámbito de carrera, por si algún dato antiguo no tiene 'carrera'.
-            if (selectedScope === 'career' && data.scope === 'course') {
-              return false;
-            }
-            return true;
-          });
-        
-        setAttendanceRecords(finalAttendanceRecords);
-
-        if (finalAttendanceRecords.length === 0 && (selectedSemester || (selectedCareer && selectedCareer !== 'Todos') || filterModule)) {
-          toast.info('No se encontraron registros de asistencia para los filtros seleccionados.');
-        }
-
-      } catch (error) {
-        console.error('Error al cargar datos de asistencia:', error);
-        toast.error('Error al cargar los registros de asistencia.');
-      } finally {
+      // Siempre se filtra por período.
+      if (selectedPeriod) {
+        queryConstraints.push(where('period', '==', selectedPeriod));
+      } else {
+        // Si no hay período, no se muestra nada para evitar cargar toda la base de datos.
+        setAttendanceRecords([]);
         setLoading(false);
+        return;
       }
-    };
 
-    fetchAttendanceRecords();
+      if (selectedScope === 'career') {
+        // Ámbito carrera: filtrar por carrera y semestre.
+        if (selectedCareer && selectedCareer !== 'Todos') {
+          queryConstraints.push(where('carrera', '==', selectedCareer));
+        }
+        if (selectedSemester) {
+          queryConstraints.push(where('semester', '==', String(selectedSemester)));
+        }
+      } else {
+        // Ámbito curso: filtrar por ID de curso.
+        queryConstraints.push(where('scope', '==', 'course'));
+        if (selectedCourse) {
+          queryConstraints.push(where('courseId', '==', selectedCourse));
+        }
+      }
+
+      if (filterModule) {
+        queryConstraints.push(where('moduleName', '==', filterModule));
+      }
+
+      const attendanceQuery = query(collection(db, 'attendance'), ...queryConstraints);
+      const attSnap = await getDocs(attendanceQuery);
+      
+      const finalAttendanceRecords = attSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(data => {
+          // Filtro adicional en el cliente para el ámbito de carrera, por si algún dato antiguo no tiene 'carrera'.
+          if (selectedScope === 'career' && data.scope === 'course') {
+            return false;
+          }
+          return true;
+        });
+      
+      setAttendanceRecords(finalAttendanceRecords);
+
+      if (finalAttendanceRecords.length === 0 && (selectedSemester || (selectedCareer && selectedCareer !== 'Todos') || filterModule)) {
+        toast.info('No se encontraron registros de asistencia para los filtros seleccionados.');
+      }
+
+    } catch (error) {
+      console.error('Error al cargar datos de asistencia:', error);
+      toast.error('Error al cargar los registros de asistencia.');
+    } finally {
+      setLoading(false);
+    }
   }, [selectedCareer, selectedCourse, filterModule, selectedSemester, selectedPeriod, selectedScope]);
 
-  const saturdays = getSaturdays(year, month);
-  // Sábados del mes siguiente
-  const nextMonth = month === 11 ? 0 : month + 1;
-  const nextMonthYear = month === 11 ? year + 1 : year;
-  const nextMonthSaturdays = getSaturdays(nextMonthYear, nextMonth);
+  useEffect(() => {
+    fetchAttendanceRecords();
+  }, [fetchAttendanceRecords]);
 
   const handleAttendanceChange = (studentId, dateStr, value) => {
-    setAttendance(prev => ({
-      ...prev,
-      [studentId]: {
-        ...(prev[studentId] || {}),
-        [dateStr]: value
-      }
-    }));
+    setAttendance(prev => {
+      const newStudentAttendance = { ...prev[studentId], [dateStr]: value };
+      return {
+        ...prev,
+        [studentId]: newStudentAttendance,
+      };
+    });
   };
 
   const handleSave = async () => {
@@ -554,6 +539,7 @@ const AttendanceManager = () => {
         }
       }
       toast.success('Asistencia guardada correctamente');
+      fetchAttendanceRecords(); // Recargar la tabla principal
     } catch (e) {
       console.error("Error saving attendance:", e);
       toast.error('Error al guardar la asistencia');
@@ -571,6 +557,38 @@ const AttendanceManager = () => {
       toast.success('Registro de asistencia eliminado');
     } catch (e) {
       toast.error('Error al eliminar el registro');
+    }
+  };
+
+  const handleDeleteIndividualAttendance = async (dateToDelete) => {
+    if (!detailRecord) return;
+
+    const { id, attendance } = detailRecord;
+    const docRef = doc(db, 'attendance', id);
+
+    try {
+      const newAttendance = { ...attendance };
+      delete newAttendance[dateToDelete];
+
+      if (Object.keys(newAttendance).length === 0) {
+        await deleteDoc(docRef);
+        toast.success('Registro de asistencia completo eliminado.');
+        setAttendanceRecords(prev => prev.filter(r => r.id !== id));
+        setShowDetailModal(false);
+      } else {
+        await setDoc(docRef, { attendance: newAttendance }, { merge: true });
+        toast.success(`Asistencia del ${dateToDelete} eliminada.`);
+        
+        const updatedDetailRecord = { ...detailRecord, attendance: newAttendance };
+        setDetailRecord(updatedDetailRecord);
+
+        setAttendanceRecords(prev => prev.map(r => 
+          r.id === id ? { ...r, attendance: newAttendance } : r
+        ));
+      }
+    } catch (error) {
+      console.error("Error deleting individual attendance:", error);
+      toast.error("Error al eliminar la asistencia.");
     }
   };
 
@@ -691,11 +709,11 @@ const AttendanceManager = () => {
   useEffect(() => {
     // Cargar módulos de la carrera seleccionada SOLO cuando el modal está abierto
     const fetchModules = async () => {
-      if (!showModal || !selectedCareer || selectedCareer === 'Todos') {
+      if (!showModal || !selectedCareer || selectedCareer === 'Todos' || !selectedSemester) {
         setModulesForCareer([]);
         return;
       }
-      
+
       // Buscar la carrera por nombre
       const careersSnap = await getDocs(collection(db, 'careers'));
       const careerDoc = careersSnap.docs.find(doc => (doc.data().nombre || '').toLowerCase() === selectedCareer.toLowerCase());
@@ -703,57 +721,81 @@ const AttendanceManager = () => {
         setModulesForCareer([]);
         return;
       }
-      
+
       // Traer módulos de la subcolección
       const modulesSnap = await getDocs(collection(db, 'careers', careerDoc.id, 'modules'));
-      const allModules = modulesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      
-      // Filtrar módulos por semestre seleccionado
-      const modulesDelSemestre = allModules.filter(modulo => {
+      let allModules = modulesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+      // Filtrar por semestre
+      allModules = allModules.filter(modulo => {
         const moduloSemestre = String(modulo.semestre || modulo.semester || '1');
         return moduloSemestre === selectedSemester;
       });
+
+      // Si el usuario es un profesor, filtrar por los módulos que tiene asignados
+      if (currentUser.role === 'teacher') {
+        const teachersSnap = await getDocs(query(collection(db, 'teachers'), where('email', '==', currentUser.email)));
+        if (!teachersSnap.empty) {
+          const teacher = teachersSnap.docs[0].data();
+          const teacherFullName = (teacher.name + ' ' + (teacher.lastName || '')).trim();
+          
+          allModules = allModules.filter(modulo => {
+            const profesoresAsignados = Array.isArray(modulo.profesor)
+              ? modulo.profesor
+              : (typeof modulo.profesor === 'string' ? [modulo.profesor] : []);
+            return profesoresAsignados.some(p => (p || '').trim() === teacherFullName);
+          });
+        }
+      }
       
-      setModulesForCareer(modulesDelSemestre);
+      setModulesForCareer(allModules);
       
-      // Si hay un módulo seleccionado que no está en el semestre actual, limpiarlo
-      if (moduleName && !modulesDelSemestre.some(m => m.nombre === moduleName)) {
+      // Si hay un módulo seleccionado que no está en el semestre actual o no es del profesor, limpiarlo
+      if (moduleName && !allModules.some(m => m.nombre === moduleName)) {
         setModuleName('');
       }
     };
     
     fetchModules();
-  }, [selectedCareer, showModal, selectedSemester, moduleName]);
+  }, [selectedCareer, showModal, selectedSemester, currentUser]);
 
   // Limpiar módulo seleccionado cuando cambia la carrera en el modal
   useEffect(() => {
     if (showModal && !editStudentId) setModuleName('');
   }, [selectedCareer, showModal, editStudentId]);
 
+  useEffect(() => {
+    if (selectedDate) {
+      setMonth(selectedDate.getMonth());
+      setYear(selectedDate.getFullYear());
+    }
+  }, [selectedDate]);
+
   // Filtrar estudiantes por semestre y módulo seleccionado
   const getFilteredStudentsForAttendance = () => {
     if (editStudentId && studentToEdit) return [studentToEdit];
-    return students.filter(student => {
+
+    let filteredStudents = students.filter(student => {
       const studentSemester = String(student.semester || student.semestre || '1');
-      
-      // Verificar que el estudiante esté en el semestre seleccionado
-      if (selectedSemester && studentSemester !== selectedSemester) {
-        return false;
-      }
-      
-      // Si hay un módulo seleccionado, verificar que el estudiante tenga ese módulo asignado
-      if (moduleName) {
-        const moduleMatch = student.modulosAsignados?.some(m => {
-          const module = modulesForCareer.find(mc => mc.id === m.id);
-          return module && 
-                 module.nombre === moduleName && 
-                 String(module.semestre || module.semester) === studentSemester;
-        });
-        return moduleMatch;
-      }
-      
-      return true;
+      return !selectedSemester || studentSemester === selectedSemester;
     });
+
+    if (moduleName) {
+      const selectedModuleData = modulesForCareer.find(m => m.nombre === moduleName);
+      if (selectedModuleData) {
+        filteredStudents = filteredStudents.filter(student => {
+          return student.modulosAsignados?.some(m => m.id === selectedModuleData.id);
+        });
+      } else {
+        // Si el módulo no se encuentra (p.ej. se está escribiendo), no mostrar estudiantes
+        return [];
+      }
+    } else {
+        // Si no hay módulo seleccionado, no mostrar estudiantes para evitar registros sin módulo.
+        return [];
+    }
+
+    return filteredStudents;
   };
 
   // --- NUEVO: Mantener módulo seleccionado y cargar asistencias previas correctamente ---
@@ -822,19 +864,30 @@ const AttendanceManager = () => {
     }
   }, [showModal, modulesForCareer, moduleName, selectedModule]);
 
-  // --- NUEVO: Cargar asistencias previas solo al seleccionar módulo en modo registro ---
+  // Cargar asistencias existentes para el módulo seleccionado cuando el modal está abierto
   useEffect(() => {
-    // Solo cargar si el modal está abierto, no estamos editando, y hay módulo seleccionado
-    if (showModal && !editStudentId && moduleName && modulesForCareer.length > 0) {
-      // Buscar el módulo seleccionado por nombre
-      const mod = modulesForCareer.find(m => m.nombre === moduleName);
-      if (!mod) return;
-      // Traer asistencias previas de todos los estudiantes para ese módulo (todas las fechas)
-      (async () => {
+    const loadAttendanceForModule = async () => {
+      if (!showModal || !moduleName || !selectedPeriod || !selectedSemester) {
+        setAttendance({});
+        return;
+      }
+
+      const studentsForAttendance = getFilteredStudentsForAttendance();
+      if (studentsForAttendance.length === 0) {
+        setAttendance({});
+        return;
+      }
+
+      try {
+        const studentIds = studentsForAttendance.map(s => s.id);
         const attSnap = await getDocs(query(
           collection(db, 'attendance'),
-          where('moduleName', '==', moduleName)
+          where('moduleName', '==', moduleName),
+          where('period', '==', selectedPeriod),
+          where('semester', '==', selectedSemester),
+          where('studentId', 'in', studentIds)
         ));
+        
         const attData = {};
         attSnap.forEach(docu => {
           const data = docu.data();
@@ -843,309 +896,305 @@ const AttendanceManager = () => {
           }
         });
         setAttendance(attData);
-      })();
-    }
-    // Si se borra el módulo, limpiar asistencias
-    if (showModal && !editStudentId && !moduleName) {
-      setAttendance({});
-    }
-  }, [showModal, moduleName, modulesForCareer, editStudentId]);
+      } catch (error) {
+        console.error("Error loading attendance for module:", error);
+        toast.error("Error al cargar las asistencias previas.");
+      }
+    };
+
+    loadAttendanceForModule();
+  }, [showModal, moduleName, selectedPeriod, selectedSemester, students]); // Depende de students para recalcular si la lista de estudiantes cambia
 
   return (
-    <div className="max-w-5xl mx-auto p-2 sm:p-6 bg-white rounded-lg shadow border border-gray-100 mt-6">
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-2">
-        <h1 className="text-xl sm:text-2xl font-bold text-[#23408e] flex items-center gap-2">
-          <svg className="w-7 h-7 text-[#23408e]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-          Gestión de Asistencia
-        </h1>
-        <button
-          onClick={() => {
-            setShowModal(true);
-            setModuleName('');
-            setSelectedModule('');
-            setSelectedStudent('');
-            setEditStudentId(null);
-            setStudentToEdit(null);
-            setAttendance({}); // Limpiar todas las asistencias al abrir el modal
-            // Establecer mes y año actual
-            const now = new Date();
-            setMonth(now.getMonth());
-            setYear(now.getFullYear());
-          }}
-          className="bg-[#009245] hover:bg-[#23408e] text-white font-semibold px-4 py-2 rounded shadow flex items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-          Registrar Asistencia
-        </button>
-      </div>
+    <div className="container mx-auto p-4 sm:p-6 lg:p-8">
+      <header className="mb-8">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-800">Gestión de Asistencia</h1>
+            <p className="mt-1 text-md text-gray-500">
+              Administra y registra la asistencia de los estudiantes por carrera, curso y módulo.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              setShowModal(true);
+              setModuleName('');
+              setSelectedModule('');
+              setSelectedStudent('');
+              setEditStudentId(null);
+              setStudentToEdit(null);
+              setAttendance({});
+              setSelectedDate(new Date());
+            }}
+            className="mt-4 sm:mt-0 inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg shadow-sm transition-colors"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+            <span>Registrar Asistencia</span>
+          </button>
+        </div>
+      </header>
+
       {/* Filtros */}
-      <div className="mb-8 border-b pb-6">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center bg-gray-50 rounded-lg p-2">
-              <span className="text-sm text-gray-600 mr-2">Período:</span>
-              <select
-                className="bg-transparent border-none text-[#23408e] font-semibold focus:ring-0 text-sm min-w-[120px]"
-                value={selectedPeriod}
-                onChange={e => setSelectedPeriod(e.target.value)}
-              >
-                {Array.from(new Set([...academicPeriods]))
-                  .sort((a, b) => b.localeCompare(a))
-                  .filter(Boolean)
-                  .map(period => (
-                    <option key={period} value={period}>
-                      {period.replace('-', ' - ')}
-                    </option>
-                  ))}
-              </select>
-            </div>
-            {currentUser?.role === 'admin' && (
-              <button
-                onClick={async () => {
-                  const year = new Date().getFullYear();
-                  const currentPeriods = Array.from(new Set([...academicPeriods]));
-                  const lastPeriod = currentPeriods.sort((a, b) => b.localeCompare(a))[0];
-                  let suggestedYear = year;
-                  let suggestedPeriod = "1";
-                  
-                  if (lastPeriod) {
-                    const [lastYear, lastNum] = lastPeriod.split('-');
-                    if (lastNum === "1") {
-                      suggestedYear = lastYear;
-                      suggestedPeriod = "2";
-                    } else {
-                      suggestedYear = parseInt(lastYear) + 1;
-                      suggestedPeriod = "1";
-                    }
-                  }
-
-                  const newPeriod = prompt(
-                    'Ingrese el nuevo período académico:\n\nFormato: AAAA-N donde:\n- AAAA es el año (ejemplo: 2025)\n- N es el número del período (1 o 2)',
-                    `${suggestedYear}-${suggestedPeriod}`
-                  );
-
-                  if (newPeriod && /^\d{4}-[12]$/.test(newPeriod)) {
-                    if (currentPeriods.includes(newPeriod)) {
-                      alert('Este período ya existe');
-                      return;
-                    }
-
-                    try {
-                      // Crear el documento del período
-                      const periodsRef = collection(db, 'academicPeriods');
-                      await setDoc(doc(periodsRef, newPeriod), {
-                        period: newPeriod,
-                        createdAt: new Date().toISOString(),
-                        createdBy: currentUser.email,
-                        active: true
-                      });
-
-                      // Recargar los períodos desde Firebase
-                      await loadAcademicPeriods();
+      <div className="bg-white p-6 rounded-xl shadow-md border border-gray-200 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* Columna 1: Período y Ámbito */}
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Período Académico</label>
+              <div className="flex items-center gap-2">
+                <select
+                  className="w-full bg-gray-50 border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  value={selectedPeriod}
+                  onChange={e => setSelectedPeriod(e.target.value)}
+                >
+                  {Array.from(new Set([...academicPeriods]))
+                    .sort((a, b) => b.localeCompare(a))
+                    .filter(Boolean)
+                    .map(period => (
+                      <option key={period} value={period}>
+                        {period.replace('-', ' - ')}
+                      </option>
+                    ))}
+                </select>
+                {currentUser?.role === 'admin' && (
+                  <button
+                    onClick={async () => {
+                      const year = new Date().getFullYear();
+                      const currentPeriods = Array.from(new Set([...academicPeriods]));
+                      const lastPeriod = currentPeriods.sort((a, b) => b.localeCompare(a))[0];
+                      let suggestedYear = year;
+                      let suggestedPeriod = "1";
                       
-                      // Seleccionar el nuevo período
-                      setSelectedPeriod(newPeriod);
+                      if (lastPeriod) {
+                        const [lastYear, lastNum] = lastPeriod.split('-');
+                        if (lastNum === "1") {
+                          suggestedYear = lastYear;
+                          suggestedPeriod = "2";
+                        } else {
+                          suggestedYear = parseInt(lastYear) + 1;
+                          suggestedPeriod = "1";
+                        }
+                      }
 
-                      toast.success('Período académico creado correctamente');
-                    } catch (error) {
-                      console.error('Error al crear período:', error);
-                      toast.error('Error al crear el período académico');
-                    }
-                  } else if (newPeriod) {
-                    alert('Formato inválido. Use el formato AAAA-N (ejemplo: 2025-1)');
-                  }
-                }}
-                className="p-2 text-[#009245] hover:bg-green-50 rounded-lg transition-colors flex items-center gap-1"
-                title="Agregar nuevo período académico"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
-                </svg>
-                <span className="text-sm">Nuevo Período</span>
-              </button>
-            )}
-          </div>
-        </div>
+                      const newPeriod = prompt(
+                        'Ingrese el nuevo período académico:\n\nFormato: AAAA-N (ej: 2025-1)',
+                        `${suggestedYear}-${suggestedPeriod}`
+                      );
 
-        {/* Navegación de semestres */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          {/* Ámbito: Carreras / Cursos */}
-          <div className="flex items-center gap-3 mb-2">
-            <span className="text-sm text-gray-600">Ámbito:</span>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className={`px-3 py-1.5 rounded-md text-sm ${selectedScope === 'career' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}
-                onClick={() => setSelectedScope('career')}
-              >Carreras</button>
-              <button
-                type="button"
-                className={`px-3 py-1.5 rounded-md text-sm ${selectedScope === 'course' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}
-                onClick={() => setSelectedScope('course')}
-              >Cursos</button>
+                      if (newPeriod && /^\d{4}-[12]$/.test(newPeriod)) {
+                        if (currentPeriods.includes(newPeriod)) {
+                          toast.warn('Este período ya existe');
+                          return;
+                        }
+                        try {
+                          const periodsRef = collection(db, 'academicPeriods');
+                          await setDoc(doc(periodsRef, newPeriod), {
+                            period: newPeriod,
+                            createdAt: new Date().toISOString(),
+                            createdBy: currentUser.email,
+                            active: true
+                          });
+                          await loadAcademicPeriods();
+                          setSelectedPeriod(newPeriod);
+                          toast.success('Período académico creado');
+                        } catch (error) {
+                          console.error('Error al crear período:', error);
+                          toast.error('Error al crear el período');
+                        }
+                      } else if (newPeriod) {
+                        toast.error('Formato inválido. Use AAAA-N');
+                      }
+                    }}
+                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                    title="Agregar nuevo período"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+                  </button>
+                )}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Ámbito</label>
+              <div className="flex gap-2 p-1 bg-gray-100 rounded-lg">
+                <button
+                  type="button"
+                  className={`w-full px-3 py-1.5 rounded-md text-sm font-semibold transition-colors ${selectedScope === 'career' ? 'bg-white text-blue-600 shadow-sm' : 'bg-transparent text-gray-600'}`}
+                  onClick={() => { setSelectedScope('career'); setSelectedCourse(''); }}
+                >Carreras</button>
+                <button
+                  type="button"
+                  className={`w-full px-3 py-1.5 rounded-md text-sm font-semibold transition-colors ${selectedScope === 'course' ? 'bg-white text-blue-600 shadow-sm' : 'bg-transparent text-gray-600'}`}
+                  onClick={() => { setSelectedScope('course'); setSelectedSemester(''); }}
+                >Cursos</button>
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            {["1", "2", "3"].map(num => (
-              <button
-                key={num}
-                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors
-                  ${selectedSemester === num 
-                    ? "bg-[#23408e] text-white" 
-                    : "text-gray-600 hover:bg-gray-50"}`}
-                onClick={() => setSelectedSemester(num)}
-              >
-                Semestre {num}
-              </button>
-            ))}
-            <button
-              className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors
-                ${!selectedSemester 
-                  ? "bg-gray-100 text-gray-700" 
-                  : "text-gray-600 hover:bg-gray-50"}`}
-              onClick={() => setSelectedSemester("")}
-            >
-              Todos
-            </button>
+          {/* Columna 2: Selección de Carrera/Curso y Semestre */}
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{selectedScope === 'career' ? 'Carrera' : 'Curso'}</label>
+              {selectedScope === 'career' ? (
+                <select className="w-full bg-gray-50 border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm" value={selectedCareer} onChange={e => setSelectedCareer(e.target.value)}>
+                  {careers.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              ) : (
+                <select className="w-full bg-gray-50 border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm" value={selectedCourse} onChange={e => setSelectedCourse(e.target.value)}>
+                  {coursesList.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                </select>
+              )}
+            </div>
+            {selectedScope === 'career' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Semestre</label>
+                <div className="flex flex-wrap gap-2">
+                  {["1", "2", "3"].map(num => (
+                    <button
+                      key={num}
+                      className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${selectedSemester === num ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+                      onClick={() => setSelectedSemester(num)}
+                    >
+                      Sem. {num}
+                    </button>
+                  ))}
+                  <button
+                    className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${!selectedSemester ? "bg-gray-200 text-gray-800" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+                    onClick={() => setSelectedSemester("")}
+                  >
+                    Todos
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Columna 3: Filtro por Módulo */}
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Filtrar por Módulo</label>
+              <select className="w-full bg-gray-50 border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm" value={filterModule} onChange={e => setFilterModule(e.target.value)}>
+                <option value="">Todos los módulos</option>
+                {currentUser.role === 'teacher'
+                  ? teacherModules
+                      .filter(m =>
+                        (!selectedCareer || m.careerName === selectedCareer) &&
+                        (!selectedSemester || String(m.semester) === selectedSemester)
+                      )
+                      .map(m => <option key={m.id} value={m.nombre}>{m.nombre}</option>)
+                  : (selectedCareer && selectedCareer !== 'Todos' && careerModules.length > 0
+                      ? careerModules
+                          .filter(m => !selectedSemester || String(m.semestre || m.semester) === selectedSemester)
+                          .map(m => <option key={m.nombre} value={m.nombre}>{m.nombre}</option>)
+                      : allModuleNames.map(m => <option key={m} value={m}>{m}</option>)
+                    )
+                }
+              </select>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Filtros adicionales */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-6">
-        <div>
-          {selectedScope === 'career' ? (
-            <>
-              <label className="block text-sm font-semibold mb-1 text-[#23408e]">Carrera</label>
-              <select className="w-full border border-[#23408e] rounded px-2 py-2 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-sm" value={selectedCareer} onChange={e => setSelectedCareer(e.target.value)}>
-                {careers.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </>
-          ) : (
-            <>
-              <label className="block text-sm font-semibold mb-1 text-[#23408e]">Curso</label>
-              <select className="w-full border border-[#23408e] rounded px-2 py-2 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-sm" value={selectedCourse} onChange={e => setSelectedCourse(e.target.value)}>
-                {coursesList.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-              </select>
-            </>
-          )}
-        </div>
-        <div>
-          <label className="block text-sm font-semibold mb-1 text-[#23408e]">Filtrar por módulo</label>
-          <select className="w-full border border-[#23408e] rounded px-2 py-2 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-sm" value={filterModule} onChange={e => setFilterModule(e.target.value)}>
-            <option value="">Todos</option>
-            { (
-              selectedCareer && selectedCareer !== 'Todos' && careerModules.length > 0
-                ? careerModules
-                    .filter(m => !selectedSemester || String(m.semestre || m.semester) === selectedSemester)
-                    .map(m => (
-                      <option key={m.nombre} value={m.nombre}>{m.nombre}</option>
-                    ))
-                : allModuleNames.map(m => (
-                    <option key={m} value={m}>{m}</option>
-                  ))
-            )}
-          </select>
-        </div>
+      {/* Tabla de información de asistencia */}
+      <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
+        {loading ? (
+          <div className="text-center py-12 text-gray-500">Cargando registros...</div>
+        ) : attendanceRecords.length === 0 ? (
+          <div className="text-center py-12 px-6 bg-gray-50">
+            <svg className="w-16 h-16 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <h3 className="text-lg font-semibold text-gray-800">No se encontraron registros</h3>
+            <p className="text-gray-500 mt-1">
+              Intenta ajustar los filtros o registra una nueva asistencia.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full w-full text-sm">
+              <thead className="bg-gray-100 text-gray-600">
+                <tr>
+                  <th className="px-6 py-3 text-left font-semibold">{selectedScope === 'course' ? 'Curso' : 'Carrera'}</th>
+                  <th className="px-6 py-3 text-left font-semibold">Módulo</th>
+                  <th className="px-6 py-3 text-left font-semibold">Estudiante</th>
+                  <th className="px-6 py-3 text-center font-semibold">Resumen Asistencia</th>
+                  <th className="px-6 py-3 text-left font-semibold">Actualizado por</th>
+                  <th className="px-6 py-3 text-left font-semibold">Fecha Actualización</th>
+                  <th className="px-6 py-3 text-center font-semibold">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {(() => {
+                  const filteredRecords = filterModule ? attendanceRecords.filter(r => r.moduleName === filterModule) : attendanceRecords;
+                  const grouped = {};
+                  filteredRecords.forEach(rec => {
+                    const student = students.find(s => s.id === rec.studentId);
+                    if (!student) return;
+                    const key = selectedScope === 'course' ? (rec.courseName || 'Curso') : (student.career || 'Sin carrera');
+                    if (!grouped[key]) grouped[key] = {};
+                    if (!grouped[key][rec.moduleName]) grouped[key][rec.moduleName] = [];
+                    grouped[key][rec.moduleName].push({ ...rec, student });
+                  });
+                  return Object.entries(grouped).flatMap(([groupKey, modules]) =>
+                    Object.entries(modules).flatMap(([modName, records]) =>
+                      records.map((rec, idx) => {
+                        let totalSab = 0;
+                        let asistidos = 0;
+                        Object.values(rec.attendance || {}).forEach(val => {
+                          totalSab++;
+                          if (val === true) asistidos++;
+                        });
+                        const user = users.find(u => u.id === rec.updatedBy);
+                        const updatedBy = user ? `${user.name || ''} ${user.lastName || ''}`.trim() : rec.updatedBy;
+                        return (
+                          <tr key={rec.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-800">{groupKey}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-gray-600">{modName}</td>
+                            <td className="px-6 py-4 whitespace-nowrap font-semibold text-gray-900">{rec.student.name} {rec.student.lastName}</td>
+                            <td className="px-6 py-4 text-center">
+                              <div className="flex items-center justify-center gap-2">
+                                <span className="inline-block px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">{asistidos} Asist.</span>
+                                <span className="inline-block px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">{totalSab - asistidos} Faltas</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-gray-500">{updatedBy}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-gray-500">{rec.updatedAt ? new Date(rec.updatedAt).toLocaleString('es-CO') : '-'}</td>
+                            <td className="px-6 py-4 text-center">
+                              <div className="flex items-center justify-center gap-2">
+                                <button
+                                  className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-full"
+                                  onClick={() => { setDetailRecord({ ...rec, student: rec.student }); setShowDetailModal(true); }}
+                                  title="Ver Detalles"
+                                >
+                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                </button>
+                                <button
+                                  className="p-2 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-full"
+                                  onClick={() => handleUpdateClick(rec, rec.student)}
+                                  title="Actualizar"
+                                >
+                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L15.232 5.232z" /></svg>
+                                </button>
+                                <button
+                                  className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-full"
+                                  onClick={() => { setDeleteRecord(rec); setShowDeleteModal(true); }}
+                                  title="Eliminar"
+                                >
+                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )
+                  );
+                })()}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
-      {/*Tabla de información de asistencia */}
-      {loading ? (
-        <div className="text-center py-8 text-gray-600">Cargando...</div>
-      ) : attendanceRecords.length === 0 ? (
-        <div className="text-center py-8 bg-gray-50 rounded-lg border border-gray-200 mt-4">
-          <svg className="w-16 h-16 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-          <p className="text-lg font-semibold text-gray-800 mb-2">No hay registros de asistencia</p>
-          <p className="text-gray-600">
-            {selectedSemester 
-              ? `No se encontraron asistencias para el semestre ${selectedSemester}`
-              : "No se encontraron registros de asistencia"}
-          </p>
-        </div>
-      ) : (
-        <div className="overflow-x-auto mt-4">
-          <table className="min-w-[700px] w-full border rounded-lg text-xs sm:text-base">
-            <thead className="sticky top-0 z-10">
-              <tr className="bg-[#23408e] text-white">
-                <th className="px-4 py-2 text-left font-semibold">{selectedScope === 'course' ? 'Curso' : 'Carrera'}</th>
-                <th className="px-4 py-2 text-center font-semibold">Módulo</th>
-                <th className="px-4 py-2 text-center font-semibold">Estudiante</th>
-                <th className="px-4 py-2 text-center font-semibold">Sábados</th>
-                <th className="px-4 py-2 text-center font-semibold">Asistencias</th>
-                <th className="px-4 py-2 text-center font-semibold">Registrado por</th>
-                <th className="px-4 py-2 text-center font-semibold">Última actualización</th>
-                <th className="px-4 py-2 text-center font-semibold">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {/* Agrupar por carrera y módulo */}
-              {(() => {
-                // Filtrar registros por módulo si está seleccionado
-                let filteredRecords = filterModule
-                  ? attendanceRecords.filter(r => r.moduleName === filterModule)
-                  : attendanceRecords;
-                // Agrupar por carrera/curso, luego por módulo
-                const grouped = {};
-                filteredRecords.forEach(rec => {
-                  const student = students.find(s => s.id === rec.studentId);
-                  if (!student) return;
-                  const key = selectedScope === 'course' ? (rec.courseName || 'Curso') : (student.career || 'Sin carrera');
-                  if (!grouped[key]) grouped[key] = {};
-                  if (!grouped[key][rec.moduleName]) grouped[key][rec.moduleName] = [];
-                  grouped[key][rec.moduleName].push({ ...rec, student });
-                });
-                // Renderizar agrupado
-                return Object.entries(grouped).map(([groupKey, modules]) => (
-                  Object.entries(modules).map(([modName, records]) => (
-                    records.map((rec, idx) => {
-                      let totalSab = 0;
-                      let asistidos = 0;
-                      Object.entries(rec.attendance || {}).forEach(([dateStr, val]) => {
-                        totalSab++;
-                        if (val === true) asistidos++;
-                      });
-                      return (
-                        <tr key={rec.id} className="border-b hover:bg-[#f0f6ff]">
-                          <td className="px-4 py-2 font-semibold whitespace-nowrap text-[#23408e]">{groupKey}</td>
-                          <td className="px-4 py-2 text-center text-[#009245] font-semibold">{modName}</td>
-                          <td className="px-4 py-2 font-semibold whitespace-nowrap text-[#23408e]">{rec.student.name} {rec.student.lastName}</td>
-                          <td className="px-4 py-2 text-center">{totalSab}</td>
-                          <td className="px-4 py-2 text-center">
-                            <span className="inline-block px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 mr-2">{asistidos} Asistió</span>
-                            <span className="inline-block px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">{totalSab - asistidos} No asistió</span>
-                          </td>
-                          <td className="px-4 py-2 text-center text-xs text-gray-700">{
-                            (() => {
-                              const user = users.find(u => u.id === rec.updatedBy);
-                              return user ? `${user.name || ''} ${user.lastName || ''}`.trim() : rec.updatedBy;
-                            })()
-                          }</td>
-                          <td className="px-4 py-2 text-center text-xs text-gray-500">{rec.updatedAt ? new Date(rec.updatedAt).toLocaleString('es-CO') : '-'}</td>
-                          <td className="px-4 py-2 text-center flex flex-wrap gap-2 justify-center">
-                            <button
-                              className="border rounded px-2 py-1 text-[#23408e] hover:bg-gray-50 text-xs font-semibold"
-                              onClick={() => { setDetailRecord({ ...rec, student: rec.student }); setShowDetailModal(true); }}
-                            >Ver</button>
-                            <button
-                              className="border rounded px-2 py-1 text-[#009245] hover:bg-blue-50 text-xs font-semibold"
-                              onClick={() => handleUpdateClick(rec, rec.student)}
-                            >Actualizar</button>
-                            <button
-                              className="border rounded px-2 py-1 text-red-600 hover:bg-red-100 text-xs font-semibold"
-                              onClick={() => { setDeleteRecord(rec); setShowDeleteModal(true); }}
-                            >Eliminar</button>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  ))
-                ));
-              })()}
-            </tbody>
-          </table>
-        </div>
-      )}
+
       {/* Modal para registrar asistencia */}
       <Modal
         isOpen={showModal}
@@ -1153,324 +1202,180 @@ const AttendanceManager = () => {
           setShowModal(false);
           setSelectedStudent('');
           setModuleName('');
-          setEditStudentId(null); // Limpiar modo edición
+          setEditStudentId(null);
           setStudentToEdit(null);
         }}
         contentLabel="Registrar Asistencia"
-        className="modal-center max-w-[900px] min-w-[65vw] w-[75vw] bg-white rounded-2xl shadow-2xl p-2 sm:p-10 border-t-8 border-[#009245] overflow-y-auto max-h-[90vh]"
-        overlayClassName="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 z-50"
+        className="modal-center w-11/12 max-w-screen-xl bg-white rounded-2xl shadow-2xl p-8 border-t-8 border-blue-600 overflow-y-auto max-h-[95vh]"
+        overlayClassName="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50"
       >
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-2">
-          <h2 className="text-2xl sm:text-3xl font-bold text-[#23408e] flex items-center gap-3">
-            <svg className="w-8 h-8 text-[#23408e]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-            Registrar Asistencia
-          </h2>
-          <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-700 text-3xl font-bold">&times;</button>
-        </div>
-        {/* Formulario de asistencia */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 mb-10">
+        <header className="flex justify-between items-center mb-6 pb-4 border-b">
+          <h2 className="text-2xl font-bold text-gray-800">Registrar Asistencia</h2>
+          <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600 text-3xl">&times;</button>
+        </header>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div>
-            <label className="block text-base font-semibold mb-2 text-[#23408e]">{selectedScope === 'course' ? 'Curso' : 'Carrera'}</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{selectedScope === 'course' ? 'Curso' : 'Carrera'}</label>
             {selectedScope === 'course' ? (
-              <select className="w-full border-2 border-[#23408e] rounded-lg px-4 py-3 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-base bg-white shadow-sm" value={selectedCourse} onChange={e => setSelectedCourse(e.target.value)}>
+              <select className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm" value={selectedCourse} onChange={e => setSelectedCourse(e.target.value)}>
                 {coursesList.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
               </select>
             ) : (
-              <select className="w-full border-2 border-[#23408e] rounded-lg px-4 py-3 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-base bg-white shadow-sm" value={selectedCareer} onChange={e => setSelectedCareer(e.target.value)}>
+              <select className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm" value={selectedCareer} onChange={e => setSelectedCareer(e.target.value)}>
                 {careers.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             )}
           </div>
           <div>
-            <label className="block text-base font-semibold mb-2 text-[#23408e]">Mes</label>
-            <select className="w-full border-2 border-[#23408e] rounded-lg px-4 py-3 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-base bg-white shadow-sm" value={month} onChange={e => setMonth(Number(e.target.value))}>
-              {months.map((m, idx) => <option key={m} value={idx}>{m}</option>)}
-            </select>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
+            <DatePicker
+              selected={selectedDate}
+              onChange={(date) => setSelectedDate(date)}
+              dateFormat="dd/MM/yyyy"
+              className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm"
+            />
           </div>
           <div>
-            <label className="block text-base font-semibold mb-2 text-[#23408e]">Año</label>
-            <input type="number" className="w-full border-2 border-[#23408e] rounded-lg px-4 py-3 focus:ring-2 focus:ring-[#009245] text-[#23408e] font-semibold text-base bg-white shadow-sm" value={year} onChange={e => setYear(Number(e.target.value))} min={2020} max={2100} />
-          </div>
-          <div>
-            <label className="block text-base font-semibold mb-2 text-[#23408e]">Módulo</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Módulo</label>
             {modulesForCareer.length > 0 ? (
               <select
                 name="moduleName"
-                className="w-full border-2 border-[#009245] rounded-lg px-4 py-3 focus:ring-2 focus:ring-[#23408e] text-[#009245] font-semibold text-base bg-white shadow-sm"
+                className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm"
                 value={moduleName}
                 onChange={e => setModuleName(e.target.value)}
               >
                 <option value="">Selecciona un módulo...</option>
-                {modulesForCareer.map(m => (
-                  <option key={m.id} value={m.nombre}>{m.nombre}</option>
-                ))}
+                {modulesForCareer.map(m => <option key={m.id} value={m.nombre}>{m.nombre}</option>)}
               </select>
             ) : (
-              <input type="text" className="w-full border-2 border-[#009245] rounded-lg px-4 py-3 focus:ring-2 focus:ring-[#23408e] text-[#009245] font-semibold text-base bg-white shadow-sm" placeholder="Nombre del módulo..." value={moduleName} onChange={e => setModuleName(e.target.value)} />
+              <input type="text" className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm" placeholder="Nombre del módulo..." value={moduleName} onChange={e => setModuleName(e.target.value)} />
             )}
           </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-[900px] w-full border rounded-2xl text-xs sm:text-base shadow-md">
-            <thead className="sticky top-0 z-10">
-              <tr className="bg-[#23408e] text-white">
-                <th className="px-4 py-3 text-left font-semibold">Estudiante</th>
-                {saturdays.map((date, idx) => {
-                  const isLast = idx === saturdays.length - 1;
-                  return (
-                    <th key={toLocalDateString(date)} className="px-4 py-3 text-center font-semibold relative">
-                    {date.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
-                      {isLast && (
-                        <button
-                          type="button"
-                          title="Agregar sábados del mes siguiente"
-                          onClick={() => setShowNextMonthSaturdays(true)}
-                          style={{ position: 'absolute', right: '-18px', top: '50%', transform: 'translateY(-50%)', display: showNextMonthSaturdays ? 'none' : 'block' }}
-                          className="ml-2 bg-[#009245] hover:bg-[#23408e] text-white rounded-full w-7 h-7 flex items-center justify-center shadow border border-white"
-                        >
-                          <span style={{ fontSize: 22, lineHeight: 1 }}>+</span>
-                        </button>
-                      )}
-                    </th>
-                  );
-                })}
-                {showNextMonthSaturdays && nextMonthSaturdays.map((date, idx) => (
-                  <th key={toLocalDateString(date)} className="px-4 py-3 text-center font-semibold bg-[#e6f9ed] text-[#009245] relative">
-                    {date.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
-                    {idx === 0 && (
-                      <button
-                        type="button"
-                        title="Quitar sábados del mes siguiente"
-                        onClick={() => setShowNextMonthSaturdays(false)}
-                        style={{ position: 'absolute', left: '-18px', top: '50%', transform: 'translateY(-50%)' }}
-                        className="mr-2 bg-[#d32f2f] hover:bg-[#23408e] text-white rounded-full w-7 h-7 flex items-center justify-center shadow border border-white"
-                      >
-                        <span style={{ fontSize: 22, lineHeight: 1 }}>-</span>
-                      </button>
-                    )}
-                  </th>
-                ))}
+
+        <div className="overflow-y-auto max-h-96 border rounded-lg">
+          <table className="min-w-full w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50 sticky top-0 z-10">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estudiante</th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Asistencia</th>
               </tr>
             </thead>
-            <tbody>
-              {getFilteredStudentsForAttendance().map(student => (
-                <tr key={student.id} className="border-b hover:bg-[#f0f6ff]">
-                  <td className="px-4 py-3 font-semibold whitespace-nowrap text-[#23408e] text-base">{student.name} {student.lastName}</td>
-                  {saturdays.map(date => {
-                    const dateStr = toLocalDateString(date);
-                    const isEditable = !selectedStudent || student.id === selectedStudent;
-                    const currentValue = attendance[student.id]?.[dateStr];
-                    return (
-                      <td key={dateStr} className="px-4 py-3 text-center">
-                        <div className="flex items-center justify-center gap-3 flex-wrap">
-                          {/* Checkbox Asistió */}
-                          <label className="inline-flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={currentValue === true}
-                              onChange={() => {
-                                if (!isEditable) return;
-                                if (currentValue === true) {
-                                  setAttendance(prev => {
-                                    const copy = { ...prev };
-                                    if (copy[student.id]) {
-                                      copy[student.id] = { ...copy[student.id] };
-                                      delete copy[student.id][dateStr];
-                                      if (Object.keys(copy[student.id]).length === 0) delete copy[student.id];
-                                    }
-                                    return copy;
-                                  });
-                                } else {
-                                  handleAttendanceChange(student.id, dateStr, true);
-                                }
-                              }}
-                              className="accent-[#009245] w-6 h-6 rounded-lg border-2 border-[#009245] shadow-sm"
-                              disabled={!isEditable}
-                            />
-                            <span className="ml-2 text-green-700 font-semibold text-sm">Asistió</span>
-                          </label>
-                          {/* Checkbox No asistió */}
-                          <label className="inline-flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={currentValue === false}
-                              onChange={() => {
-                                if (!isEditable) return;
-                                if (currentValue === false) {
-                                  setAttendance(prev => {
-                                    const copy = { ...prev };
-                                    if (copy[student.id]) {
-                                      copy[student.id] = { ...copy[student.id] };
-                                      delete copy[student.id][dateStr];
-                                      if (Object.keys(copy[student.id]).length === 0) delete copy[student.id];
-                                    }
-                                    return copy;
-                                  });
-                                } else {
-                                  handleAttendanceChange(student.id, dateStr, false);
-                                }
-                              }}
-                              className="accent-[#d32f2f] w-6 h-6 rounded-lg border-2 border-[#d32f2f] shadow-sm"
-                              disabled={!isEditable}
-                            />
-                            <span className="ml-2 text-red-600 font-semibold text-sm">No asistió</span>
-                          </label>
-                        </div>
-                      </td>
-                    );
-                  })}
-                  {/* Sábados del mes siguiente si showNextMonthSaturdays está activo */}
-                  {showNextMonthSaturdays && nextMonthSaturdays.map(date => {
-                    const dateStr = toLocalDateString(date);
-                    const isEditable = !selectedStudent || student.id === selectedStudent;
-                    const currentValue = attendance[student.id]?.[dateStr];
-                    return (
-                      <td key={dateStr} className="px-4 py-3 text-center bg-[#e6f9ed]">
-                        <div className="flex items-center justify-center gap-3 flex-wrap">
-                          {/* Checkbox Asistió */}
-                          <label className="inline-flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={currentValue === true}
-                              onChange={() => {
-                                if (!isEditable) return;
-                                if (currentValue === true) {
-                                  setAttendance(prev => {
-                                    const copy = { ...prev };
-                                    if (copy[student.id]) {
-                                      copy[student.id] = { ...copy[student.id] };
-                                      delete copy[student.id][dateStr];
-                                      if (Object.keys(copy[student.id]).length === 0) delete copy[student.id];
-                                    }
-                                    return copy;
-                                  });
-                                } else {
-                                  handleAttendanceChange(student.id, dateStr, true);
-                                }
-                              }}
-                              className="accent-[#009245] w-6 h-6 rounded-lg border-2 border-[#009245] shadow-sm"
-                              disabled={!isEditable}
-                            />
-                            <span className="ml-2 text-green-700 font-semibold text-sm">Asistió</span>
-                          </label>
-                          {/* Checkbox No asistió */}
-                          <label className="inline-flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={currentValue === false}
-                              onChange={() => {
-                                if (!isEditable) return;
-                                if (currentValue === false) {
-                                  setAttendance(prev => {
-                                    const copy = { ...prev };
-                                    if (copy[student.id]) {
-                                      copy[student.id] = { ...copy[student.id] };
-                                      delete copy[student.id][dateStr];
-                                      if (Object.keys(copy[student.id]).length === 0) delete copy[student.id];
-                                    }
-                                    return copy;
-                                  });
-                                } else {
-                                  handleAttendanceChange(student.id, dateStr, false);
-                                }
-                              }}
-                              className="accent-[#d32f2f] w-6 h-6 rounded-lg border-2 border-[#d32f2f] shadow-sm"
-                              disabled={!isEditable}
-                            />
-                            <span className="ml-2 text-red-600 font-semibold text-sm">No asistió</span>
-                          </label>
-                        </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
+            <tbody className="bg-white divide-y divide-gray-200">
+              {getFilteredStudentsForAttendance().map(student => {
+                const dateStr = toLocalDateString(selectedDate);
+                const isEditable = !selectedStudent || student.id === selectedStudent;
+                const currentValue = attendance[student.id]?.[dateStr];
+                return (
+                  <tr key={student.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">{student.name} {student.lastName}</td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center justify-center gap-4">
+                        <label className="inline-flex items-center cursor-pointer">
+                          <input type="radio" name={`attendance-${student.id}`} checked={currentValue === true} onChange={() => handleAttendanceChange(student.id, dateStr, true)} className="form-radio h-5 w-5 text-green-600" disabled={!isEditable} />
+                          <span className="ml-2 text-sm text-gray-700">Asistió</span>
+                        </label>
+                        <label className="inline-flex items-center cursor-pointer">
+                          <input type="radio" name={`attendance-${student.id}`} checked={currentValue === false} onChange={() => handleAttendanceChange(student.id, dateStr, false)} className="form-radio h-5 w-5 text-red-600" disabled={!isEditable} />
+                          <span className="ml-2 text-sm text-gray-700">No asistió</span>
+                        </label>
+                        <button onClick={() => setAttendance(prev => { const newAtt = { ...prev[student.id] }; delete newAtt[dateStr]; return { ...prev, [student.id]: newAtt }; })} className="text-gray-400 hover:text-gray-600" title="Limpiar selección">&#x2715;</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
-        <div className="flex justify-end mt-10">
+
+        <footer className="flex justify-end mt-8 pt-6 border-t">
           <button
             onClick={async () => { await handleSave(); setShowModal(false); setEditStudentId(null); setStudentToEdit(null); }}
-            className="bg-[#009245] hover:bg-[#23408e] text-white font-semibold px-8 sm:px-12 py-4 rounded-xl shadow-lg text-lg sm:text-xl w-full sm:w-auto transition-all duration-200"
+            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2.5 rounded-lg shadow-sm transition-all duration-200 disabled:bg-gray-400"
             disabled={loading}
           >
             Guardar Asistencia
           </button>
-        </div>
+        </footer>
       </Modal>
+
       {/* Modal de detalle de asistencia */}
       {showDetailModal && detailRecord && (
         <Modal
           isOpen={showDetailModal}
           onRequestClose={() => setShowDetailModal(false)}
           contentLabel="Detalle de Asistencia"
-          className="modal-center max-w-2xl w-full bg-white rounded-lg shadow-lg p-8 border-t-4 border-[#009245] animate-fadeIn overflow-y-auto max-h-[90vh]"
-          overlayClassName="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 z-50"
+          className="modal-center max-w-lg w-full bg-white rounded-xl shadow-xl p-8 border-t-4 border-blue-500"
+          overlayClassName="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50"
         >
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-2xl font-bold text-[#23408e] flex items-center gap-2">
-              <svg className="w-7 h-7 text-[#23408e]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-              Detalle de Asistencia
-            </h2>
-            <button onClick={() => setShowDetailModal(false)} className="text-gray-400 hover:text-gray-700 text-2xl font-bold">&times;</button>
+          <header className="flex justify-between items-start mb-4">
+            <div>
+              <h2 className="text-xl font-bold text-gray-800">Detalle de Asistencia</h2>
+              <p className="text-gray-500 text-sm mt-1">Módulo: {detailRecord.moduleName || '-'}</p>
+            </div>
+            <button onClick={() => setShowDetailModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+          </header>
+          <div className="mb-6 text-sm">
+            <p><span className="font-semibold">Estudiante:</span> {detailRecord.student.name} {detailRecord.student.lastName}</p>
+            <p><span className="font-semibold">Registrado por:</span> {(() => { const user = users.find(u => u.id === detailRecord.updatedBy); return user ? `${user.name || ''} ${user.lastName || ''}`.trim() : detailRecord.updatedBy; })()}</p>
+            <p><span className="font-semibold">Última actualización:</span> {detailRecord.updatedAt ? new Date(detailRecord.updatedAt).toLocaleString('es-CO') : '-'}</p>
           </div>
-          <div className="mb-4">
-            <div className="font-semibold text-lg text-[#23408e]">{detailRecord.student.name} {detailRecord.student.lastName}</div>
-            <div className="text-[#009245] font-semibold">Módulo: {detailRecord.moduleName || '-'}</div>
-            <div className="text-gray-500">Registrado por: {(() => { const user = users.find(u => u.id === detailRecord.updatedBy); return user ? `${user.name || ''} ${user.lastName || ''}`.trim() : detailRecord.updatedBy; })()}</div>
-            <div className="text-gray-500">Última actualización: {detailRecord.updatedAt ? new Date(detailRecord.updatedAt).toLocaleString('es-CO') : '-'}</div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full border rounded-lg">
-              <thead>
-                <tr className="bg-[#23408e] text-white">
-                  <th className="px-4 py-2 text-left font-semibold">Fecha</th>
-                  <th className="px-4 py-2 text-center font-semibold">Estado</th>
+          <div className="overflow-y-auto max-h-80 border rounded-lg">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
+                  <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Estado</th>
+                  <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Acciones</th>
                 </tr>
               </thead>
-              <tbody>
-                {Object.entries(detailRecord.attendance || {}).map(([date, val]) => (
-                  <tr key={date} className="border-b">
-                    <td className="px-4 py-2 font-semibold text-[#23408e]">{(() => {
-                      // date es string 'YYYY-MM-DD', parsear como local
-                      const [y, m, d] = date.split('-');
-                      const localDate = new Date(Number(y), Number(m) - 1, Number(d));
-                      return localDate.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
-                    })()}</td>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {Object.entries(detailRecord.attendance || {}).sort(([dateA], [dateB]) => new Date(dateA) - new Date(dateB)).map(([date, val]) => (
+                  <tr key={date}>
+                    <td className="px-4 py-2 font-medium text-gray-800">{new Date(date + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' })}</td>
                     <td className="px-4 py-2 text-center">
                       {val === true ? (
-                        <span className="inline-block px-3 py-1 rounded-full bg-green-100 text-green-700 font-semibold">Asistió</span>
+                        <span className="inline-flex px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">Asistió</span>
                       ) : (
-                        <span className="inline-block px-3 py-1 rounded-full bg-red-100 text-red-700 font-semibold">No asistió</span>
+                        <span className="inline-flex px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">No asistió</span>
                       )}
+                    </td>
+                    <td className="px-4 py-2 text-center">
+                      <button
+                        onClick={() => handleDeleteIndividualAttendance(date)}
+                        className="p-1 text-red-500 hover:text-red-700 hover:bg-red-100 rounded-full"
+                        title={`Eliminar asistencia del ${date}`}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                      </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div className="flex justify-end mt-6">
-            <button
-              onClick={() => setShowDetailModal(false)}
-              className="px-6 py-2 bg-[#009245] text-white rounded-md hover:bg-[#23408e] font-semibold"
-            >Cerrar</button>
-          </div>
+          <footer className="flex justify-end mt-6">
+            <button onClick={() => setShowDetailModal(false)} className="px-5 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 font-semibold text-sm">Cerrar</button>
+          </footer>
         </Modal>
       )}
+
       {/* Modal de confirmación de eliminación */}
       {showDeleteModal && deleteRecord && (
         <Modal
           isOpen={showDeleteModal}
           onRequestClose={() => setShowDeleteModal(false)}
           contentLabel="Eliminar asistencia"
-          className="modal-center max-w-md w-full bg-white rounded-lg shadow-lg p-8 border-t-4 border-[#d32f2f]"
-          overlayClassName="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50"
+          className="modal-center max-w-md w-full bg-white rounded-xl shadow-xl p-8 border-t-4 border-red-500"
+          overlayClassName="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
         >
-          <h3 className="text-lg font-bold mb-4 text-[#d32f2f]">¿Eliminar registro de asistencia?</h3>
-          <p className="mb-6 text-gray-700">Esta acción no se puede deshacer. ¿Deseas continuar?</p>
-          <div className="flex justify-end gap-4">
-            <button onClick={() => setShowDeleteModal(false)} className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Cancelar</button>
-            <button onClick={handleDelete} className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">Eliminar</button>
+          <h3 className="text-xl font-bold text-gray-800">Confirmar Eliminación</h3>
+          <p className="my-4 text-gray-600">¿Estás seguro de que deseas eliminar este registro de asistencia? Esta acción no se puede deshacer.</p>
+          <div className="flex justify-end gap-4 mt-6">
+            <button onClick={() => setShowDeleteModal(false)} className="px-5 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 font-semibold">Cancelar</button>
+            <button onClick={handleDelete} className="px-5 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold">Eliminar</button>
           </div>
         </Modal>
       )}
