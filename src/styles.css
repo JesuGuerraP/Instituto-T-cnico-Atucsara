@@ -2,3 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Estilo para resaltar días con asistencia existente en react-datepicker */
+.react-datepicker__day--highlighted {
+    background-color: #28a745; /* Verde */
+    color: white;
+}
+
+.react-datepicker__day--highlighted:hover {
+    background-color: #218838; /* Verde más oscuro */
+}
+
+/* Asegurar que el calendario se muestre por encima del modal */
+.react-datepicker-popper {
+    z-index: 9999 !important;
+}
