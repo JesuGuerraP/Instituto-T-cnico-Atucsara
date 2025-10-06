@@ -560,8 +560,28 @@ const TeacherDashboard = () => {
           <Modal
             isOpen={showStudentsModal}
             onRequestClose={() => setShowStudentsModal(false)}
-            className="modal-center max-w-6xl w-full bg-white rounded-lg shadow-lg p-8 border-t-4 border-[#23408e] animate-fadeIn"
-            overlayClassName="overlay-center bg-black bg-opacity-40"
+            style={{
+              overlay: {
+                backgroundColor: 'rgba(0, 0, 0, 0.75)',
+                zIndex: 1000,
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+              },
+              content: {
+                position: 'relative',
+                inset: 'auto',
+                border: 'none',
+                background: 'white',
+                overflow: 'auto',
+                borderRadius: '0.5rem',
+                outline: 'none',
+                padding: '2rem',
+                width: '90%',
+                maxWidth: '72rem',
+                maxHeight: '90vh',
+              }
+            }}
           >
             <div className="flex justify-between items-start mb-6">
               <div>
