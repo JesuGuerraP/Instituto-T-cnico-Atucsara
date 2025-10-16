@@ -168,6 +168,7 @@ const AttendanceManager = () => {
       const allStudentsSnap = await getDocs(collection(db, 'students'));
       const allStudentsArr = [];
       allStudentsSnap.forEach(doc => allStudentsArr.push({ id: doc.id, ...doc.data() }));
+      const activeStudents = allStudentsArr.filter(student => student.status === 'active');
       if (currentUser.role === 'teacher') {
         // Buscar el docente en la colección teachers
         let teacher = null;
@@ -255,7 +256,7 @@ const AttendanceManager = () => {
         if (coursesTmp.length && !selectedCourse) setSelectedCourse(coursesTmp[0].id);
         
         // Solo mostrar estudiantes que estén en el semestre seleccionado y tengan módulos asignados del docente
-        const filteredStudents = allStudentsArr.filter(student => {
+        const filteredStudents = activeStudents.filter(student => {
           const studentSemester = String(student.semester || student.semestre || '1');
           return (
             // Verificar que el estudiante esté en el semestre seleccionado
@@ -276,7 +277,7 @@ const AttendanceManager = () => {
         setLoading(false);
       } else {
         // Admin/secretary: mostrar todo, pero filtrar por semestre
-        const filteredStudents = allStudentsArr.filter(student => {
+        const filteredStudents = activeStudents.filter(student => {
           const studentSemester = String(student.semester || student.semestre || '1');
           return !selectedSemester || studentSemester === selectedSemester;
         });
@@ -303,10 +304,11 @@ const AttendanceManager = () => {
       let allStudents = [];
       const studentsSnap = await getDocs(collection(db, 'students'));
       studentsSnap.forEach(doc => allStudents.push({ id: doc.id, ...doc.data() }));
+      const activeStudents = allStudents.filter(student => student.status === 'active');
 
       let filtered = [];
       if (selectedScope === 'career') {
-        let base = allStudents;
+        let base = activeStudents;
         if (selectedCareer && selectedCareer !== 'Todos') {
           base = base.filter(s => (s.career || '') === selectedCareer);
         }
@@ -314,7 +316,7 @@ const AttendanceManager = () => {
       } else {
         // ámbito curso: filtrar por selectedCourse (id en array student.courses)
         const courseId = selectedCourse;
-        filtered = allStudents.filter(s => Array.isArray(s.courses) && (!courseId || s.courses.includes(courseId)));
+        filtered = activeStudents.filter(s => Array.isArray(s.courses) && (!courseId || s.courses.includes(courseId)));
       }
 
       // Filtrar por semestre si aplica (solo carreras usan semestre; mantener para ambos por compatibilidad)

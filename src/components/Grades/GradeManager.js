@@ -63,7 +63,9 @@ const GradeManager = () => {
       await loadAcademicPeriods();
       
       const studentsSnap = await getDocs(collection(db, 'students'));
-      const allStudents = studentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const allStudents = studentsSnap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(student => student.status === 'active');
       
       const teachersSnap = await getDocs(collection(db, 'teachers'));
       const allTeachers = teachersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));

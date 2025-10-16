@@ -110,6 +110,7 @@ const TeacherDashboard = () => {
         const studentsSnap = await getDocs(collection(db, 'students'));
         const estudiantesFiltrados = studentsSnap.docs
           .map(doc => ({ id: doc.id, ...doc.data() }))
+          .filter(student => student.status === 'active')
           .filter(student =>
             student.modulosAsignados?.some(m =>
               modulos.some(mod => mod.id === m.id)
@@ -168,7 +169,8 @@ const TeacherDashboard = () => {
       setSeminariosAsignados(seminarios);
       // Buscar estudiantes de cada seminario
       const studentsSnap = await getDocs(collection(db, 'students'));
-      const estudiantes = studentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const estudiantes = studentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(student => student.status === 'active');
       let estPorSem = {};
       seminarios.forEach(sem => {
         estPorSem[sem.id] = estudiantes.filter(est =>
