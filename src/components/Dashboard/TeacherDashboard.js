@@ -598,84 +598,94 @@ const TeacherDashboard = () => {
               </button>
             </div>
 
-            <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
-              <table className="min-w-full border rounded-lg text-sm">
-                <thead>
-                  <tr className="bg-[#e3eafc]">
-                    <th className="px-4 py-2 text-left text-[#23408e] font-semibold">Nombre</th>
-                    <th className="px-4 py-2 text-left text-[#23408e] font-semibold">Email</th>
-                    <th className="px-4 py-2 text-left text-[#23408e] font-semibold">Teléfono</th>
-                    <th className="px-4 py-2 text-center text-[#23408e] font-semibold">Semestre</th>
-                    <th className="px-4 py-2 text-center text-[#23408e] font-semibold">Estado</th>
-                    <th className="px-4 py-2 text-center text-[#23408e] font-semibold">Acciones</th>
-                    <th className="px-4 py-2 text-center text-[#23408e] font-semibold">&nbsp;</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {estudiantes
-                    .filter(est => est.modulosAsignados?.some(m => m.id === selectedModule.id))
-                    .map((estudiante, idx) => {
-                      const modEst = estudiante.modulosAsignados.find(m => m.id === selectedModule.id);
-                      const estado = modEst?.estado || 'pendiente';
-                      let estadoColor = '';
-                      switch (estado) {
-                        case 'aprobado':
-                          estadoColor = 'bg-green-100 text-green-800 border-green-300';
-                          break;
-                        case 'cursando':
-                          estadoColor = 'bg-blue-100 text-blue-800 border-blue-300';
-                          break;
-                        case 'pendiente':
-                        default:
-                          estadoColor = 'bg-gray-100 text-gray-700 border-gray-300';
-                      }
-                      return (
-                        <tr key={estudiante.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-blue-50'}>
-                          <td className="px-4 py-3 font-semibold text-[#23408e] whitespace-nowrap">{estudiante.name} {estudiante.lastName}</td>
-                          <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{estudiante.email}</td>
-                          <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{estudiante.phone || '-'}</td>
-                          <td className="px-4 py-3 text-center">{estudiante.semester || '-'}</td>
-                          <td className="px-4 py-3 text-center">
-                            <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold border ${estadoColor}`}>{estado.charAt(0).toUpperCase() + estado.slice(1)}</span>
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <select
-                              className={`px-2 py-1 rounded-full text-xs font-semibold border ${estadoColor}`}
-                              value={estado}
-                              onChange={e =>
-                                updateModuleStatus(
-                                  estudiante.id,
-                                  selectedModule.id,
-                                  e.target.value
-                                )
-                              }
-                            >
-                              <option value="pendiente">Pendiente</option>
-                              <option value="cursando">Cursando</option>
-                              <option value="aprobado">Aprobado</option>
-                            </select>
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <div className="flex justify-center gap-2">
-                              <Link
-                                to={`/dashboard/grades?student=${estudiante.id}&module=${selectedModule.id}`}
-                                className="px-3 py-1 bg-[#23408e] text-white rounded-full text-xs hover:bg-blue-700 transition-colors"
+            <div className="overflow-y-auto max-h-[60vh]">
+              {/* Estudiantes Cursando */}
+              <div className="mb-8">
+                <h3 className="text-lg font-bold text-blue-600 mb-2">Estudiantes Cursando</h3>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full border rounded-lg text-sm">
+                    <thead>
+                      <tr className="bg-blue-50">
+                        <th className="px-4 py-2 text-left text-blue-800 font-semibold">Nombre</th>
+                        <th className="px-4 py-2 text-left text-blue-800 font-semibold">Email</th>
+                        <th className="px-4 py-2 text-center text-blue-800 font-semibold">Estado</th>
+                        <th className="px-4 py-2 text-center text-blue-800 font-semibold">Acciones</th>
+                        <th className="px-4 py-2 text-center text-blue-800 font-semibold">Accesos</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {estudiantes
+                        .filter(est => est.modulosAsignados?.some(m => m.id === selectedModule.id && (m.estado === 'cursando' || m.estado === 'pendiente')))
+                        .map((estudiante, idx) => (
+                          <tr key={estudiante.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-blue-50/50'}>
+                            <td className="px-4 py-3 font-semibold text-gray-800 whitespace-nowrap">{estudiante.name} {estudiante.lastName}</td>
+                            <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{estudiante.email}</td>
+                            <td className="px-4 py-3 text-center">
+                              <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold border bg-blue-100 text-blue-800 border-blue-300">Cursando</span>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <select
+                                className="px-2 py-1 rounded-full text-xs font-semibold border bg-blue-100 text-blue-800 border-blue-300"
+                                value={estudiante.modulosAsignados.find(m => m.id === selectedModule.id)?.estado || 'cursando'}
+                                onChange={e => updateModuleStatus(estudiante.id, selectedModule.id, e.target.value)}
                               >
-                                Calificar
-                              </Link>
-                              <Link
-                                to={`/dashboard/attendance?student=${estudiante.id}&module=${selectedModule.id}`}
-                                className="px-3 py-1 bg-[#009245] text-white rounded-full text-xs hover:bg-green-700 transition-colors"
+                                <option value="pendiente">Pendiente</option>
+                                <option value="cursando">Cursando</option>
+                                <option value="aprobado">Aprobado</option>
+                              </select>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <div className="flex justify-center gap-2">
+                                <Link to={`/dashboard/grades?student=${estudiante.id}&module=${selectedModule.id}`} className="px-3 py-1 bg-[#23408e] text-white rounded-full text-xs hover:bg-blue-700 transition-colors">Calificar</Link>
+                                <Link to={`/dashboard/attendance?student=${estudiante.id}&module=${selectedModule.id}`} className="px-3 py-1 bg-[#009245] text-white rounded-full text-xs hover:bg-green-700 transition-colors">Asistencia</Link>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Estudiantes Aprobados */}
+              <div>
+                <h3 className="text-lg font-bold text-green-600 mb-2">Estudiantes Aprobados</h3>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full border rounded-lg text-sm">
+                    <thead>
+                      <tr className="bg-green-50">
+                        <th className="px-4 py-2 text-left text-green-800 font-semibold">Nombre</th>
+                        <th className="px-4 py-2 text-left text-green-800 font-semibold">Email</th>
+                        <th className="px-4 py-2 text-center text-green-800 font-semibold">Estado</th>
+                        <th className="px-4 py-2 text-center text-green-800 font-semibold">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {estudiantes
+                        .filter(est => est.modulosAsignados?.some(m => m.id === selectedModule.id && m.estado === 'aprobado'))
+                        .map((estudiante, idx) => (
+                          <tr key={estudiante.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-green-50/50'}>
+                            <td className="px-4 py-3 font-semibold text-gray-800 whitespace-nowrap">{estudiante.name} {estudiante.lastName}</td>
+                            <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{estudiante.email}</td>
+                            <td className="px-4 py-3 text-center">
+                              <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold border bg-green-100 text-green-800 border-green-300">Aprobado</span>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <select
+                                className="px-2 py-1 rounded-full text-xs font-semibold border bg-green-100 text-green-800 border-green-300"
+                                value="aprobado"
+                                onChange={e => updateModuleStatus(estudiante.id, selectedModule.id, e.target.value)}
                               >
-                                Asistencia
-                              </Link>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                </tbody>
-              </table>
+                                <option value="aprobado">Aprobado</option>
+                                <option value="cursando">Cursando</option>
+                              </select>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
 
             <div className="flex justify-end mt-6">

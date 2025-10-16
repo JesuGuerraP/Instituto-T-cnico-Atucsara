@@ -35,6 +35,32 @@ const StudentsTable = () => {
   const [showCursosDetalle, setShowCursosDetalle] = useState(false);
   const [courseModulesInfo, setCourseModulesInfo] = useState([]); // [{courseId, courseName, modules: []}]
 
+  const handleUnassignModule = async (studentId, moduleId) => {
+    const studentRef = doc(db, 'students', studentId);
+    const studentSnap = await getDoc(studentRef);
+    if (studentSnap.exists()) {
+      const studentData = studentSnap.data();
+      const updatedModulos = studentData.modulosAsignados.filter(m => m.id !== moduleId);
+      await updateDoc(studentRef, { modulosAsignados: updatedModulos });
+      setSelectedStudent(prev => ({ ...prev, modulosAsignados: updatedModulos }));
+      toast.success('Módulo desvinculado');
+    }
+  };
+
+  const handleModuleStatusChange = async (studentId, moduleId, newStatus) => {
+    const studentRef = doc(db, 'students', studentId);
+    const studentSnap = await getDoc(studentRef);
+    if (studentSnap.exists()) {
+      const studentData = studentSnap.data();
+      const updatedModulos = studentData.modulosAsignados.map(m =>
+        m.id === moduleId ? { ...m, estado: newStatus } : m
+      );
+      await updateDoc(studentRef, { modulosAsignados: updatedModulos });
+      setSelectedStudent(prev => ({ ...prev, modulosAsignados: updatedModulos }));
+      toast.success('Estado del módulo actualizado');
+    }
+  };
+
   useEffect(() => {
     const fetchStudents = async () => {
       try {
@@ -457,10 +483,29 @@ const StudentsTable = () => {
                           estadoColor = 'bg-gray-100 text-gray-700 border-gray-300';
                       }
                       return (
-                        <li key={mod.id} className="flex flex-col gap-1 p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-blue-50 transition">
+                        <li key={mod.id} className="flex flex-col gap-2 p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-blue-50 transition">
                           <div className="flex items-center justify-between">
                             <span className="font-semibold text-blue-900 text-base truncate max-w-[60%]">{moduloObj?.nombre || 'Módulo'}</span>
-                            <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${estadoColor} ml-2`}>{mod.estado?.charAt(0).toUpperCase() + mod.estado?.slice(1)}</span>
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={mod.estado}
+                                onChange={(e) => handleModuleStatusChange(selectedStudent.id, mod.id, e.target.value)}
+                                className={`px-2 py-1 rounded-full text-xs font-semibold border ${estadoColor}`}
+                              >
+                                <option value="cursando">Cursando</option>
+                                <option value="aprobado">Aprobado</option>
+                                <option value="pendiente">Pendiente</option>
+                              </select>
+                              <button
+                                onClick={() => handleUnassignModule(selectedStudent.id, mod.id)}
+                                className="text-red-500 hover:text-red-700"
+                                title="Desvincular módulo"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </button>
+                            </div>
                           </div>
                           {moduloObj && (
                             <div className="text-xs text-gray-600 mt-1">

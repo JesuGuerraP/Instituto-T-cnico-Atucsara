@@ -21,6 +21,7 @@ const StudentDashboard = () => {
   const [careerModules, setCareerModules] = useState([]);
   // Estado para los seminarios de la carrera
   const [careerSeminarios, setCareerSeminarios] = useState([]);
+  const [semesterPrices, setSemesterPrices] = useState({});
   // Estado para mostrar todas las notas o solo las recientes
   const [verTodasLasNotas, setVerTodasLasNotas] = useState(false);
   // --- ESTADO Y FUNCIONES PARA IMPRESIÓN DE RECIBO ---
@@ -118,6 +119,19 @@ const StudentDashboard = () => {
         setCareerModules([]);
         setCareerSeminarios([]);
       }
+
+      // Cargar precios de los semestres
+      try {
+        const pricesSnap = await getDocs(collection(db, 'semesterPrices'));
+        const prices = {};
+        pricesSnap.forEach(doc => {
+          prices[doc.id] = doc.data().value;
+        });
+        setSemesterPrices(prices);
+      } catch (error) {
+        console.error("Error fetching semester prices: ", error);
+      }
+
       setLoading(false);
     };
     fetchData();
@@ -292,6 +306,12 @@ const StudentDashboard = () => {
     setModulosNotasVisibles(prev => ({ ...prev, [modulo]: !prev[modulo] }));
   };
 
+  // Estado para semestres desplegables
+  const [openSemesters, setOpenSemesters] = useState({});
+  const toggleSemester = (semester) => {
+    setOpenSemesters(prev => ({ ...prev, [semester]: !prev[semester] }));
+  };
+
   // Estado y handlers para modal de informe de notas
   const [showGradeReportModal, setShowGradeReportModal] = useState(false);
   const [selectedModuleForReport, setSelectedModuleForReport] = useState(null);
@@ -389,147 +409,167 @@ const StudentDashboard = () => {
         </div>
 
         {/* Sección de Calificaciones y Estado de Pagos */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-          {/* Calificaciones */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+          {/* Calificaciones por Semestre */}
           <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold flex items-center gap-2 text-[#23408e]">
-                <Book theme="outline" size="22" className="mr-1" />
-                Mis Calificaciones
-              </h2>
-            </div>
-            {/* Promedios finales por módulo y botón para ver notas */}
+            <h2 className="text-xl font-bold flex items-center gap-2 text-[#23408e] mb-4">
+              <Book theme="outline" size="22" className="mr-1" />
+              Mis Calificaciones
+            </h2>
             {Object.keys(notasPorModulo).length > 0 ? (
-              <div className="mb-4 space-y-4">
-                {Object.entries(notasPorModulo).map(([modulo, notas]) => (
-                  <div key={modulo} className="bg-gray-50 rounded-xl p-3 flex flex-col gap-2 shadow-sm border border-gray-200">
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4 gap-1">
-                      <div className="flex-1 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                        <span className="font-bold text-[#23408e] text-base">{modulo}</span>
-                        <span className="inline-block px-3 py-1 rounded-lg bg-[#e3fcec] text-[#23408e] font-bold text-lg shadow border border-[#009245]">{calcularPromedioFinal(notas)}</span>
-                      </div>
-                      <div className="flex flex-row gap-2 mt-2 sm:mt-0">
-                        <button
-                          className="px-3 py-1 rounded-full font-semibold shadow-sm border border-[#2563eb] text-[#2563eb] bg-white hover:bg-[#2563eb] hover:text-white text-xs md:text-sm transition"
-                          onClick={() => toggleNotasModulo(modulo)}
-                        >
-                          {modulosNotasVisibles[modulo] ? 'Ver menos' : 'Ver notas'}
-                        </button>
-                        <button
-                          className="px-2 py-1 rounded-full font-semibold shadow-sm border border-[#ffd600] text-[#ffd600] bg-white hover:bg-[#ffd600] hover:text-white text-xs md:text-sm transition flex items-center"
-                          title="Imprimir informe de notas"
-                          onClick={() => handleOpenGradeReport(modulo)}
-                        >
-                          <Printer theme="outline" size="18" className="mr-1" />
-                        </button>
-                      </div>
+              Object.entries(
+                // Agrupar módulos por semestre
+                Object.entries(notasPorModulo).reduce((acc, [moduleName, notas]) => {
+                  const moduleDetails = careerModules.find(m => m.nombre === moduleName);
+                  const semester = moduleDetails?.semestre || 'General';
+                  if (!acc[semester]) acc[semester] = {};
+                  acc[semester][moduleName] = notas;
+                  return acc;
+                }, {})
+              )
+              .sort(([semA], [semB]) => semA.localeCompare(semB)) // Ordenar semestres
+              .map(([semestre, modulos]) => (
+                <div key={semestre} className="mb-4 border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                  <button
+                    onClick={() => toggleSemester(`grades-${semestre}`)}
+                    className="w-full flex justify-between items-center text-left p-4 bg-gray-50 hover:bg-gray-100 transition duration-200 focus:outline-none"
+                  >
+                    <div className="flex items-center">
+                      <h3 className="text-lg font-bold text-gray-800">Semestre {semestre}</h3>
+                      <span className="ml-4 text-sm font-semibold text-gray-600 bg-gray-200 px-2.5 py-1 rounded-full">{Object.keys(modulos).length} Módulos</span>
                     </div>
-                  </div>
-                ))}
-              </div>
+                    <span className={`transform transition-transform duration-300 ${openSemesters[`grades-${semestre}`] ? 'rotate-180' : ''}`}>
+                      <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                    </span>
+                  </button>
+                  {openSemesters[`grades-${semestre}`] && (
+                    <div className="p-4 bg-white space-y-4">
+                      {Object.entries(modulos).map(([modulo, notas]) => (
+                        <div key={modulo} className="bg-gray-50 rounded-xl p-3 shadow-sm border border-gray-200">
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4 gap-1">
+                            <div className="flex-1 flex items-center gap-2">
+                              <span className="font-bold text-[#23408e] text-base">{modulo}</span>
+                              <span className="px-3 py-1 rounded-lg bg-[#e3fcec] text-[#23408e] font-bold text-lg shadow border border-[#009245]">{calcularPromedioFinal(notas)}</span>
+                            </div>
+                            <div className="flex gap-2 mt-2 sm:mt-0">
+                              <button
+                                className="px-3 py-1 rounded-full font-semibold shadow-sm border border-[#2563eb] text-[#2563eb] bg-white hover:bg-[#2563eb] hover:text-white text-xs transition"
+                                onClick={() => toggleNotasModulo(modulo)}
+                              >
+                                {modulosNotasVisibles[modulo] ? 'Ocultar' : 'Ver Notas'}
+                              </button>
+                              <button
+                                className="p-2 rounded-full font-semibold shadow-sm border border-[#ffd600] text-[#ffd600] bg-white hover:bg-[#ffd600] hover:text-white text-xs transition flex items-center"
+                                title="Imprimir informe de notas"
+                                onClick={() => handleOpenGradeReport(modulo)}
+                              >
+                                <Printer theme="outline" size="16" />
+                              </button>
+                            </div>
+                          </div>
+                          {modulosNotasVisibles[modulo] && (
+                            <div className="mt-3 overflow-x-auto">
+                              <table className="min-w-full border text-xs">
+                                {/* ... encabezado de tabla ... */}
+                                <tbody>
+                                  {Object.entries(notasPorModuloYGrupo[modulo] || {}).flatMap(([grupo, notasGrupo]) =>
+                                    notasGrupo.map((nota, idx) => (
+                                      <tr key={nota.id || idx}>
+                                        <td className="border px-2 py-1">{nota.activityName || 'Actividad'}</td>
+                                        <td className="border px-2 py-1">{grupo}</td>
+                                        <td className="border px-2 py-1">{nota.grade}</td>
+                                      </tr>
+                                    ))
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))
             ) : (
               <div className="text-gray-400">No hay calificaciones registradas.</div>
             )}
-            {/* Detalle de notas por módulo, solo si está visible */}
-            <div className="space-y-8 mt-4">
-              {Object.entries(notasPorModuloYGrupo).map(([modulo, grupos]) => (
-                modulosNotasVisibles[modulo] && (
-                  <div key={modulo} className="border rounded-xl p-3 bg-white shadow-sm">
-                    <div className="font-bold text-[#23408e] mb-2">{modulo}</div>
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full border text-xs md:text-sm">
-                        <thead>
-                          <tr className="bg-[#e3eafc] text-[#23408e]">
-                            <th className="border px-2 py-1 text-left">Actividad</th>
-                            <th className="border px-2 py-1 text-left">Grupo</th>
-                            <th className="border px-2 py-1 text-left">Nota</th>
-                            <th className="border px-2 py-1 text-left">Fecha</th>
-                            <th className="border px-2 py-1 text-left">Profesor</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {Object.entries(grupos).flatMap(([grupo, notas]) => (
-                            (verTodasLasNotas ? notas : notas.slice(0, 2)).map((nota, idx) => (
-                              <tr key={nota.id || idx}>
-                                <td className="border px-2 py-1">{nota.activityName || nota.description || 'Actividad'}</td>
-                                <td className="border px-2 py-1">{grupo}</td>
-                                <td className="border px-2 py-1">{nota.grade}</td>
-                                <td className="border px-2 py-1">{nota.date ? (nota.date.seconds ? new Date(nota.date.seconds * 1000).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : nota.date) : ''}</td>
-                                <td className="border px-2 py-1">{nota.teacherName || ''}</td>
-                              </tr>
-                            ))
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    {/* Botón para ver más notas por módulo si hay más de 2 en algún grupo */}
-                    {Object.values(grupos).some(notas => notas.length > 2) && !verTodasLasNotas && (
-                      <button
-                        className="mt-2 text-xs text-blue-700 underline hover:text-blue-900"
-                        onClick={() => setVerTodasLasNotas(true)}
-                      >
-                        Ver más notas de este módulo
-                      </button>
-                    )}
-                  </div>
-                )
-              ))}
-            </div>
           </div>
-          {/* Estado de Pagos */}
+
+          {/* Estado de Pagos por Semestre */}
           <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
-            <h2 className="text-xl font-bold mb-2 flex items-center gap-2 text-[#23408e]">
+            <h2 className="text-xl font-bold flex items-center gap-2 text-[#23408e] mb-4">
               <Wallet theme="outline" size="22" className="mr-1" />
               Estado de Pagos
             </h2>
-            <p className="text-gray-500 text-sm mb-3">Información sobre tus pagos y mensualidades</p>
-            {/* Resumen de pagos */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-              <div className="rounded-lg border-l-4 border-blue-400 bg-blue-50 p-4 flex flex-col items-center">
-                <div className="text-xs text-blue-700 font-semibold mb-1">Descuento aplicado</div>
-                <div className="text-2xl font-bold text-blue-800">{descuento}%</div>
-              </div>
-              <div className="rounded-lg border-l-4 border-green-400 bg-green-50 p-4 flex flex-col items-center">
-                <div className="text-xs text-green-700 font-semibold mb-1">Valor semestre (con desc.)</div>
-                <div className="text-lg font-bold text-green-800">{formatCOP(valorConDescuento)}</div>
-                <div className="text-xs text-gray-500">Valor sin descuento: {formatCOP(valorSemestre)}</div>
-              </div>
-              <div className="rounded-lg border-l-4 border-[#ffd600] bg-yellow-50 p-4 flex flex-col items-center">
-                <div className="text-xs text-yellow-700 font-semibold mb-1">Total pagado (módulos)</div>
-                <div className="text-lg font-bold text-yellow-800">{formatCOP(totalPagadoModulo)}</div>
-              </div>
-              <div className="rounded-lg border-l-4 border-red-400 bg-red-50 p-4 flex flex-col items-center">
-                <div className="text-xs text-red-700 font-semibold mb-1">Saldo pendiente</div>
-                <div className="text-lg font-bold text-red-800">{formatCOP(saldoPendiente)}</div>
-              </div>
-            </div>
-            {/* Lista de pagos individuales */}
-            <div className="mt-2">
-              <h3 className="text-lg font-semibold text-gray-800 mb-2">Pagos realizados</h3>
-              {payments.length === 0 ? (
-                <div className="text-gray-500">No hay pagos registrados.</div>
-              ) : (
-                <ul className="divide-y divide-gray-100">
-                  {payments.map((p, idx) => (
-                    <li key={p.id || idx} className="flex flex-col sm:flex-row sm:items-center sm:justify-between py-2 text-sm">
-                      <div className="flex-1 flex flex-col sm:flex-row sm:items-center gap-2">
-                        <span className="font-semibold text-gray-700">{p.description || 'Pago'}</span>
-                        <span className="text-xs text-gray-400">{p.date ? new Date(p.date.seconds ? p.date.seconds * 1000 : p.date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}</span>
-                        <span className="text-xs text-gray-500">{p.category}</span>
+            {payments.length > 0 ? (
+              Object.entries(
+                // Agrupar pagos por semestre
+                payments.reduce((acc, p) => {
+                  const semester = p.semestre || 'General';
+                  if (!acc[semester]) acc[semester] = [];
+                  acc[semester].push(p);
+                  return acc;
+                }, {})
+              )
+              .sort(([semA], [semB]) => semA.localeCompare(semB)) // Ordenar semestres
+              .map(([semestre, pagosSemestre]) => {
+                // Determinar el período académico para este semestre (del primer pago)
+                const periodo = pagosSemestre.length > 0 ? pagosSemestre[0].periodo : null;
+                const priceId = periodo ? `${periodo}_${semestre}` : null;
+                const valorSem = priceId && semesterPrices[priceId] !== undefined ? semesterPrices[priceId] : 200000; // Fallback
+                const valorConDesc = valorSem - (valorSem * (descuento / 100));
+                const totalPagadoSem = pagosSemestre.filter(p => p.category === 'Pago de módulo' && p.status === 'completed').reduce((sum, p) => sum + Number(p.amount), 0);
+                const saldoPendienteSem = Math.max(0, valorConDesc - totalPagadoSem);
+
+                return (
+                  <div key={semestre} className="mb-4 border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                    <button
+                      onClick={() => toggleSemester(`payments-${semestre}`)}
+                      className="w-full flex justify-between items-center text-left p-4 bg-gray-50 hover:bg-gray-100 transition duration-200 focus:outline-none"
+                    >
+                      <div className="flex items-center">
+                        <h3 className="text-lg font-bold text-gray-800">Semestre {semestre}</h3>
+                        <span className="ml-4 text-sm font-semibold text-gray-600 bg-gray-200 px-2.5 py-1 rounded-full">{pagosSemestre.length} Pagos</span>
                       </div>
-                      <div className="flex items-center gap-2 mt-2 sm:mt-0">
-                        <span className="font-semibold text-gray-900">{formatCOP(p.amount)}</span>
-                        <span className={`text-xs font-semibold rounded px-2 py-0.5 ${p.status === 'completed' ? 'bg-green-50 text-green-700 border border-green-200' : p.status === 'pending' ? 'bg-yellow-50 text-yellow-700 border border-yellow-200' : 'bg-gray-50 text-gray-500 border border-gray-200'}`}>{p.status === 'completed' ? 'Pagado' : p.status === 'pending' ? 'Pendiente' : 'Otro'}</span>
-                        <button
-                          className="border rounded px-2 py-1 text-blue-600 hover:bg-blue-50 text-xs ml-2"
-                          onClick={() => handlePrintFinanceReceipt(p)}
-                        >Imprimir</button>
+                      <span className={`transform transition-transform duration-300 ${openSemesters[`payments-${semestre}`] ? 'rotate-180' : ''}`}>
+                        <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                      </span>
+                    </button>
+                    {openSemesters[`payments-${semestre}`] && (
+                      <div className="p-4 bg-white">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                          <div className="rounded-lg border-l-4 border-green-500 bg-green-50 p-4 shadow-sm">
+                            <div className="text-sm text-green-700 font-semibold mb-1">Total Pagado</div>
+                            <div className="text-2xl font-bold text-green-800">{formatCOP(totalPagadoSem)}</div>
+                          </div>
+                          <div className="rounded-lg border-l-4 border-red-500 bg-red-50 p-4 shadow-sm">
+                            <div className="text-sm text-red-700 font-semibold mb-1">Saldo Pendiente</div>
+                            <div className="text-2xl font-bold text-red-800">{formatCOP(saldoPendienteSem)}</div>
+                          </div>
+                        </div>
+                        <ul className="divide-y divide-gray-200">
+                          {pagosSemestre.map((p, idx) => (
+                            <li key={p.id || idx} className="flex justify-between items-center py-3 text-sm">
+                              <div>
+                                <span className="font-semibold text-gray-800">{p.description || 'Pago'}</span>
+                                <span className="block text-xs text-gray-500 mt-1">{p.date ? new Date(p.date.seconds ? p.date.seconds * 1000 : p.date).toLocaleDateString('es-CO') : ''}</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="font-bold text-gray-900 text-base">{formatCOP(p.amount)}</span>
+                                <button className="ml-4 px-3 py-1 rounded-full font-semibold shadow-sm border border-blue-500 text-blue-600 bg-white hover:bg-blue-500 hover:text-white text-xs transition" onClick={() => handlePrintFinanceReceipt(p)}>Recibo</button>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
                       </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+                    )}
+                  </div>
+                );
+              })
+            ) : (
+              <div className="text-gray-500">No hay pagos registrados.</div>
+            )}
           </div>
         </div>
 
@@ -539,59 +579,87 @@ const StudentDashboard = () => {
             <Calendar theme="outline" size="22" className="mr-1" />
             Mi Asistencia
           </h2>
-          <div className="overflow-x-auto">
-            <table className="min-w-full border rounded-lg">
-              <thead>
-                <tr className="bg-[#23408e] text-white">
-                  <th className="px-4 py-2 text-center font-semibold">Módulo</th>
-                  <th className="px-4 py-2 text-center font-semibold">Sábados</th>
-                  <th className="px-4 py-2 text-center font-semibold">Asistencias</th>
-                  <th className="px-4 py-2 text-center font-semibold">Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {studentAttendance.length === 0 && (
-                  <tr><td colSpan={4} className="text-center text-gray-400 py-4">No hay registros de asistencia.</td></tr>
-                )}
-                {(() => {
-                  // Agrupar y fusionar asistencias por módulo (todas las fechas de todos los meses)
-                  const asistenciaPorModulo = {};
-                  studentAttendance.forEach(rec => {
-                    const mod = rec.moduleName;
-                    if (!mod) return;
-                    if (!asistenciaPorModulo[mod]) {
-                      asistenciaPorModulo[mod] = { attendance: {}, moduleName: mod, recs: [] };
-                    }
-                    Object.entries(rec.attendance || {}).forEach(([dateStr, val]) => {
-                      asistenciaPorModulo[mod].attendance[dateStr] = val;
-                    });
-                    asistenciaPorModulo[mod].recs.push(rec);
-                  });
-                  // Mostrar una fila por módulo, sumando todos los sábados y asistencias de todos los meses
-                  return Object.values(asistenciaPorModulo).map((modRec, idx) => {
-                    const totalSab = Object.keys(modRec.attendance).length;
-                    const asistidos = Object.values(modRec.attendance).filter(val => val === true).length;
-                    return (
-                      <tr key={modRec.moduleName} className="border-b">
-                        <td className="px-4 py-2 text-center">{modRec.moduleName}</td>
-                        <td className="px-4 py-2 text-center">{totalSab}</td>
-                        <td className="px-4 py-2 text-center">
-                          <span className="inline-block px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 mr-2">{asistidos} Asistió</span>
-                          <span className="inline-block px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">{totalSab - asistidos} No asistió</span>
-                        </td>
-                        <td className="px-4 py-2 text-center">
-                          <button
-                            className="border rounded px-2 py-1 text-[#23408e] hover:bg-gray-50 text-xs font-semibold"
-                            onClick={() => setDetailRecord({ ...modRec.recs[0], moduleName: modRec.moduleName, attendance: modRec.attendance })}
-                          >Ver detalles</button>
-                        </td>
-                      </tr>
-                    );
-                  });
-                })()}
-              </tbody>
-            </table>
-          </div>
+          {studentAttendance.length === 0 ? (
+            <div className="text-gray-400">No hay registros de asistencia.</div>
+          ) : (
+            (() => {
+              const asistenciaPorModulo = {};
+              studentAttendance.forEach(rec => {
+                const mod = rec.moduleName;
+                if (!mod) return;
+                if (!asistenciaPorModulo[mod]) {
+                  asistenciaPorModulo[mod] = { attendance: {}, moduleName: mod, recs: [] };
+                }
+                Object.entries(rec.attendance || {}).forEach(([dateStr, val]) => {
+                  asistenciaPorModulo[mod].attendance[dateStr] = val;
+                });
+                asistenciaPorModulo[mod].recs.push(rec);
+              });
+
+              const asistenciaPorSemestre = Object.values(asistenciaPorModulo).reduce((acc, modRec) => {
+                const moduleDetails = careerModules.find(m => m.nombre === modRec.moduleName);
+                const semester = moduleDetails?.semestre || 'General';
+                if (!acc[semester]) {
+                  acc[semester] = [];
+                }
+                acc[semester].push(modRec);
+                return acc;
+              }, {});
+
+              return Object.keys(asistenciaPorSemestre).sort().map(semestre => (
+                <div key={semestre} className="mb-4 border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                  <button
+                    onClick={() => toggleSemester(`attendance-${semestre}`)}
+                    className="w-full flex justify-between items-center text-left p-4 bg-gray-50 hover:bg-gray-100 transition duration-200 focus:outline-none"
+                  >
+                    <div className="flex items-center">
+                      <h3 className="text-lg font-bold text-gray-800">Semestre {semestre}</h3>
+                      <span className="ml-4 text-sm font-semibold text-gray-600 bg-gray-200 px-2.5 py-1 rounded-full">{asistenciaPorSemestre[semestre].length} Módulos</span>
+                    </div>
+                    <span className={`transform transition-transform duration-300 ${openSemesters[`attendance-${semestre}`] ? 'rotate-180' : ''}`}>
+                      <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                    </span>
+                  </button>
+                  {openSemesters[`attendance-${semestre}`] && (
+                    <div className="p-4 bg-white overflow-x-auto">
+                      <table className="min-w-full border-collapse">
+                        <thead>
+                          <tr className="bg-gray-100">
+                            <th className="px-4 py-2 text-left font-semibold text-gray-700">Módulo</th>
+                            <th className="px-4 py-2 text-center font-semibold text-gray-700">Total Clases</th>
+                            <th className="px-4 py-2 text-center font-semibold text-gray-700">Asistencias</th>
+                            <th className="px-4 py-2 text-center font-semibold text-gray-700">Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {asistenciaPorSemestre[semestre].map((modRec) => {
+                            const totalSab = Object.keys(modRec.attendance).length;
+                            const asistidos = Object.values(modRec.attendance).filter(val => val === true).length;
+                            return (
+                              <tr key={modRec.moduleName} className="hover:bg-gray-50">
+                                <td className="px-4 py-3 font-semibold text-gray-800">{modRec.moduleName}</td>
+                                <td className="px-4 py-3 text-center">{totalSab}</td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800 mr-2">{asistidos} Asistió</span>
+                                  <span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800">{totalSab - asistidos} No asistió</span>
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <button
+                                    className="px-3 py-1 rounded-full font-semibold shadow-sm border border-blue-500 text-blue-600 bg-white hover:bg-blue-500 hover:text-white text-xs transition"
+                                    onClick={() => setDetailRecord({ ...modRec.recs[0], moduleName: modRec.moduleName, attendance: modRec.attendance })}
+                                  >Ver Detalles</button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              ));
+            })()
+          )}
           {/* Modal de detalle de asistencia para estudiante */}
           {detailRecord && (
             <Modal
@@ -660,46 +728,80 @@ const StudentDashboard = () => {
           )}
         </div>
 
-        {/* Módulos de la Carrera */}
-        {careerModules.length > 0 && (
-          <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border-l-4 border-[#2563eb]">
-            <h2 className="text-xl font-bold mb-3 flex items-center gap-2 text-[#2563eb]">
-              <Book theme="outline" size="22" className="mr-1" />
-              Módulos de la Carrera
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {careerModules.map((mod) => {
-                // Buscar estado del módulo en los asignados al estudiante
-                let estado = 'pendiente';
-                if (studentInfo && Array.isArray(studentInfo.modulosAsignados)) {
-                  const modAsignado = studentInfo.modulosAsignados.find(m => m.id === mod.id);
-                  if (modAsignado) estado = modAsignado.estado || 'cursando';
-                }
-                let color = '';
-                let border = '';
-                if (estado === 'aprobado') {
-                  color = 'bg-green-100 text-green-800';
-                  border = 'border-green-400';
-                } else if (estado === 'cursando') {
-                  color = 'bg-blue-100 text-blue-800';
-                  border = 'border-blue-400';
-                } else {
-                  color = 'bg-gray-100 text-gray-700';
-                  border = 'border-gray-300';
-                }
-                return (
-                  <div key={mod.id} className={`rounded-lg border-l-4 ${border} ${color} p-4 shadow-sm flex flex-col gap-1`}>
-                    <div className="font-bold text-base">{mod.nombre}</div>
-                    <div className="text-xs text-gray-500 mb-1">{mod.descripcion}</div>
-                    <div className="text-xs font-semibold">
-                      Estado: <span className="capitalize">{estado}</span>
+        {/* Módulos Asignados por Semestre */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border-l-4 border-[#2563eb]">
+          <h2 className="text-xl font-bold mb-3 flex items-center gap-2 text-[#2563eb]">
+            <Book theme="outline" size="22" className="mr-1" />
+            Mis Módulos Asignados
+          </h2>
+          {(() => {
+            if (!studentInfo?.modulosAsignados || studentInfo.modulosAsignados.length === 0) {
+              return <p className="text-gray-500">No tienes módulos asignados.</p>;
+            }
+
+            const modulosAgrupados = studentInfo.modulosAsignados.reduce((acc, modAsignado) => {
+              const modDetails = careerModules.find(m => m.id === modAsignado.id);
+              if (!modDetails) return acc;
+
+              const semestre = modDetails.semestre || 'General';
+              if (!acc[semestre]) {
+                acc[semestre] = [];
+              }
+              acc[semestre].push({ ...modDetails, ...modAsignado });
+              return acc;
+            }, {});
+
+            return Object.keys(modulosAgrupados).sort().map(semestre => {
+              const modulosCursandoSemestre = modulosAgrupados[semestre].filter(m => m.estado === 'cursando').length;
+              const modulosAprobadosSemestre = modulosAgrupados[semestre].filter(m => m.estado === 'aprobado').length;
+              return (
+                <div key={semestre} className="mb-4 border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+                  <button
+                    onClick={() => toggleSemester(`modules-${semestre}`)}
+                    className="w-full flex justify-between items-center text-left p-4 bg-gray-50 hover:bg-gray-100 transition duration-200 focus:outline-none"
+                  >
+                    <div className="flex items-center">
+                      <h3 className="text-lg font-bold text-gray-800">Semestre {semestre}</h3>
+                      <span className="ml-4 text-sm font-semibold text-white bg-yellow-500 px-2 py-1 rounded-md">Cursando: {modulosCursandoSemestre}</span>
+                      <span className="ml-2 text-sm font-semibold text-white bg-purple-500 px-2 py-1 rounded-md">Aprobados: {modulosAprobadosSemestre}</span>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+                    <span className={`transform transition-transform duration-200 ${openSemesters[`modules-${semestre}`] ? 'rotate-180' : ''}`}>
+                      <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                    </span>
+                  </button>
+                  {openSemesters[`modules-${semestre}`] && (
+                    <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                      {modulosAgrupados[semestre].map(mod => {
+                        const estado = mod.estado || 'pendiente';
+                        let color = '';
+                        let border = '';
+                        if (estado === 'aprobado') {
+                          color = 'bg-green-100 text-green-800';
+                          border = 'border-green-400';
+                        } else if (estado === 'cursando') {
+                          color = 'bg-blue-100 text-blue-800';
+                          border = 'border-blue-400';
+                        } else {
+                          color = 'bg-gray-100 text-gray-700';
+                          border = 'border-gray-300';
+                        }
+                        return (
+                          <div key={mod.id} className={`rounded-lg border-l-4 ${border} ${color} p-4 shadow-sm flex flex-col gap-1`}>
+                            <div className="font-bold text-base">{mod.nombre}</div>
+                            <div className="text-xs text-gray-500 mb-1">{mod.descripcion}</div>
+                            <div className="text-xs font-semibold mt-auto pt-1">
+                              Estado: <span className="capitalize font-bold">{estado}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            });
+          })()}
+        </div>
         {/* Seminarios obligatorios de la carrera */}
         {careerSeminarios.length > 0 && (
           <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border-l-4 border-green-600">
