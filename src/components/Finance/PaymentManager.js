@@ -54,7 +54,7 @@ const PaymentManager = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState(null);
   
-  const [selectedPeriod, setSelectedPeriod] = useState(DEFAULT_PERIOD);
+  const [selectedPeriod, setSelectedPeriod] = useState('');
   const [selectedSemester, setSelectedSemester] = useState('1');
   const [academicPeriods, setAcademicPeriods] = useState([DEFAULT_PERIOD]);
   const [semesterPrices, setSemesterPrices] = useState({});
@@ -96,9 +96,22 @@ const PaymentManager = () => {
     try {
       const periodsRef = collection(db, 'academicPeriods');
       const periodsSnap = await getDocs(periodsRef);
-      const periods = periodsSnap.docs.map(doc => doc.data().period);
-      const allPeriods = Array.from(new Set([DEFAULT_PERIOD, ...periods])).sort((a, b) => b.localeCompare(a));
-      setAcademicPeriods(allPeriods);
+      const periods = periodsSnap.docs.map(doc => doc.data().period).filter(Boolean);
+      const allPeriods = Array.from(new Set([DEFAULT_PERIOD, ...periods]));
+
+      if (allPeriods.length > 0) {
+        const sortedPeriods = allPeriods.sort((a, b) => {
+          const [yearA, periodA] = a.split('-');
+          const [yearB, periodB] = b.split('-');
+          if (parseInt(yearB) !== parseInt(yearA)) return parseInt(yearB) - parseInt(yearA);
+          return parseInt(periodB) - parseInt(periodA);
+        });
+        setAcademicPeriods(sortedPeriods);
+        setSelectedPeriod(sortedPeriods[0]); // Set the most recent as default
+      } else {
+        setAcademicPeriods([DEFAULT_PERIOD]);
+        setSelectedPeriod(DEFAULT_PERIOD);
+      }
     } catch (error) {
       console.error('Error al cargar períodos:', error);
     }

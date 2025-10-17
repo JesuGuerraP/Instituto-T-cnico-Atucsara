@@ -22,7 +22,7 @@ const AttendanceManager = () => {
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth());
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [selectedPeriod, setSelectedPeriod] = useState(DEFAULT_PERIOD);
+  const [selectedPeriod, setSelectedPeriod] = useState('');
   const [selectedSemester, setSelectedSemester] = useState('');
   const [academicPeriods, setAcademicPeriods] = useState([DEFAULT_PERIOD]);
   const [selectedScope, setSelectedScope] = useState('career'); // 'career' | 'course'
@@ -35,25 +35,25 @@ const AttendanceManager = () => {
       const periodsRef = collection(db, 'academicPeriods');
       const periodsSnap = await getDocs(periodsRef);
       const periods = periodsSnap.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(doc => doc.period) // Asegurarse de que tiene un periodo válido
-        .map(doc => doc.period);
+        .map(doc => doc.data().period)
+        .filter(Boolean);
       
-      if (periods.length > 0) {
-        // Asegurarse de que DEFAULT_PERIOD esté incluido y ordenar de más reciente a más antiguo
-        const allPeriods = Array.from(new Set([...periods, DEFAULT_PERIOD]))
-          .sort((a, b) => {
+      // Ensure DEFAULT_PERIOD is present for migration purposes, but don't rely on it for default selection.
+      const allPeriods = Array.from(new Set([...periods, DEFAULT_PERIOD]));
+
+      if (allPeriods.length > 0) {
+        const sortedPeriods = allPeriods.sort((a, b) => {
             const [yearA, periodA] = a.split('-');
             const [yearB, periodB] = b.split('-');
-            return yearB - yearA || periodB - periodA;
-          });
+            if (parseInt(yearB) !== parseInt(yearA)) return parseInt(yearB) - parseInt(yearA);
+            return parseInt(periodB) - parseInt(periodA);
+        });
         
-        setAcademicPeriods(allPeriods);
-        
-        // Si el período seleccionado no está en la lista, seleccionar el más reciente
-        if (!allPeriods.includes(selectedPeriod)) {
-          setSelectedPeriod(allPeriods[0]);
-        }
+        setAcademicPeriods(sortedPeriods);
+        setSelectedPeriod(sortedPeriods[0]); // Set the most recent as default
+      } else {
+        setAcademicPeriods([DEFAULT_PERIOD]);
+        setSelectedPeriod(DEFAULT_PERIOD);
       }
     } catch (error) {
       console.error('Error al cargar períodos:', error);
@@ -777,10 +777,10 @@ const AttendanceManager = () => {
   const getFilteredStudentsForAttendance = () => {
     if (editStudentId && studentToEdit) return [studentToEdit];
 
-    let filteredStudents = students.filter(student => {
-      const studentSemester = String(student.semester || student.semestre || '1');
-      return !selectedSemester || studentSemester === selectedSemester;
-    });
+    let filteredStudents = students.filter(student => 
+      student.status === 'active' &&
+      (!selectedSemester || String(student.semester || student.semestre || '1') === selectedSemester)
+    );
 
     if (moduleName) {
       const selectedModuleData = modulesForCareer.find(m => m.nombre === moduleName);

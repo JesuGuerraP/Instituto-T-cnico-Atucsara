@@ -270,30 +270,54 @@ const TeacherDashboard = () => {
   if (loading) return <div className="p-8">Cargando tu panel...</div>;
   if (!teacherInfo) return <div className="p-8 text-red-600 font-bold">No se encontró información de tu usuario docente. Contacta a administración.</div>;
 
-  const modulosConEstado = modulosAsignados.map((modulo) => {
-    const estudiantesModulo = estudiantes.filter(est => est.modulosAsignados?.some(m => m.id === modulo.id));
-    const estados = estudiantesModulo.map(est => {
-      const modEst = est.modulosAsignados.find(m => m.id === modulo.id);
-      return modEst?.estado || 'pendiente';
-    });
-    let estadoModulo = 'pendiente';
-    if (estados.length > 0) {
-      const totalEstudiantes = estados.length;
-      const aprobadosCount = estados.filter(e => e === 'aprobado').length;
-      if (aprobadosCount / totalEstudiantes > 0.5) {
-        estadoModulo = 'aprobado';
-      } else if (estados.some(e => e === 'cursando')) {
-        estadoModulo = 'cursando';
-      } else if (estados.some(e => e === 'pendiente')) {
-        estadoModulo = 'pendiente';
-      } else if (aprobadosCount === totalEstudiantes) {
-        estadoModulo = 'aprobado';
-      }
-    }
-    return { ...modulo, estadoModulo };
-  });
+  const modulosAgrupados = modulosAsignados.reduce((acc, modulo) => {
+    const semestreModulo = modulo.semestre || 'Sin Semestre';
 
-  const modulosEnCurso = modulosConEstado.filter(m => m.estadoModulo === 'cursando');
+    const estudiantesDelModulo = estudiantes.filter(est =>
+      est.modulosAsignados?.some(m => m.id === modulo.id)
+    );
+
+    const estudiantesCursando = estudiantesDelModulo.filter(est => {
+      const modEst = est.modulosAsignados.find(m => m.id === modulo.id);
+      return modEst?.estado === 'cursando' || modEst?.estado === 'pendiente';
+    });
+
+    const estudiantesAprobados = estudiantesDelModulo.filter(est => {
+      const modEst = est.modulosAsignados.find(m => m.id === modulo.id);
+      return modEst?.estado === 'aprobado';
+    });
+
+    if (!acc[semestreModulo]) {
+      acc[semestreModulo] = { cursando: [], pendiente: [], aprobado: [] };
+    }
+
+    if (estudiantesCursando.length > 0) {
+      const instancia = {
+        ...modulo,
+        idUnico: `${modulo.id}-cursando`,
+        estadoModulo: 'cursando',
+        estudiantes: estudiantesCursando,
+      };
+      acc[semestreModulo].cursando.push(instancia);
+    }
+
+    if (estudiantesAprobados.length > 0) {
+      const instancia = {
+        ...modulo,
+        idUnico: `${modulo.id}-aprobado`,
+        estadoModulo: 'aprobado',
+        estudiantes: estudiantesAprobados,
+      };
+      acc[semestreModulo].aprobado.push(instancia);
+    }
+    
+    // Si no hay estudiantes, no se muestra el módulo. Se podría añadir lógica para 'pendiente' si es necesario.
+
+    return acc;
+  }, {});
+
+  const modulosEnCurso = Object.values(modulosAgrupados)
+    .flatMap(semestre => semestre.cursando);
 
   const modulosEnCursoPorSemestre = modulosEnCurso.reduce((acc, modulo) => {
       const semestre = modulo.semestre || 'Otro';
@@ -302,6 +326,12 @@ const TeacherDashboard = () => {
       }
       acc[semestre].push(modulo);
       return acc;
+  }, {});
+
+  const estudiantesPorSemestre = estudiantes.reduce((acc, estudiante) => {
+    const semestre = estudiante.semester || 'Otro';
+    acc[semestre] = (acc[semestre] || 0) + 1;
+    return acc;
   }, {});
 
   return (
@@ -346,7 +376,16 @@ const TeacherDashboard = () => {
           <div className="bg-white rounded-2xl shadow-lg p-6 flex flex-col items-center border-t-4 border-[#23408e] hover:scale-105 transition-transform duration-200">
             <People theme="outline" size="32" className="mb-2 text-[#23408e]" />
             <div className="text-3xl font-extrabold text-[#23408e] mb-1">{estadisticas.totalEstudiantes}</div>
-            <div className="text-base font-semibold text-gray-700">Estudiantes Total</div>
+            <div className="text-base font-semibold text-gray-700 mb-2">Estudiantes Total</div>
+            <div className="flex flex-wrap justify-center gap-1.5">
+              {Object.entries(estudiantesPorSemestre)
+                .sort(([semA], [semB]) => semA - semB)
+                .map(([semestre, count]) => (
+                  <span key={semestre} className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
+                    Sem {semestre}: {count}
+                  </span>
+              ))}
+            </div>
           </div>
 
           <div className="bg-white rounded-2xl shadow-lg p-6 flex flex-col items-center border-t-4 border-[#ffd600] hover:scale-105 transition-transform duration-200">
@@ -414,16 +453,6 @@ const TeacherDashboard = () => {
           </h2>
           <div className="space-y-3">
             {(() => {
-              const modulosAgrupados = modulosConEstado.reduce((acc, modulo) => {
-                const semestre = modulo.semestre || 'Sin Semestre';
-                const { estadoModulo } = modulo;
-                if (!acc[semestre]) {
-                  acc[semestre] = { cursando: [], pendiente: [], aprobado: [] };
-                }
-                acc[semestre][estadoModulo].push(modulo);
-                return acc;
-              }, {});
-
               if (modulosAsignados.length === 0) {
                 return <p className="text-gray-500 text-center py-4">No tienes módulos asignados actualmente.</p>;
               }
@@ -458,12 +487,13 @@ const TeacherDashboard = () => {
 
                           return (
                             <div
-                              key={modulo.id}
+                              key={modulo.idUnico}
                               className={`flex flex-col justify-between p-4 rounded-lg border-l-4 ${colors.border} ${colors.bg} transition-all duration-200 hover:shadow-lg hover:scale-[1.02]`}
                             >
                               <div>
                                 <h3 className="font-bold text-lg text-gray-900">{modulo.nombre}</h3>
                                 <p className={`text-sm font-semibold ${colors.text}`}>{modulo.carrera}</p>
+                                <p className={`text-xs font-bold mt-1 ${colors.text}`}>{modulo.estadoModulo.charAt(0).toUpperCase() + modulo.estadoModulo.slice(1)}</p>
                               </div>
                               <div className="flex justify-between items-center mt-4">
                                 <span className="text-xs text-gray-500">{modulo.sabadosSemana || 0} sábados</span>
@@ -475,7 +505,7 @@ const TeacherDashboard = () => {
                                   className="flex items-center gap-2 px-3 py-1.5 bg-white text-[#23408e] rounded-full text-xs font-semibold border border-gray-300 hover:bg-[#e3eafc] hover:border-[#23408e] transition-colors"
                                 >
                                   <User theme="outline" size="14" />
-                                  <span>Estudiantes</span>
+                                  <span>Estudiantes ({modulo.estudiantes.length})</span>
                                 </button>
                               </div>
                             </div>
@@ -599,93 +629,106 @@ const TeacherDashboard = () => {
             </div>
 
             <div className="overflow-y-auto max-h-[60vh]">
-              {/* Estudiantes Cursando */}
-              <div className="mb-8">
-                <h3 className="text-lg font-bold text-blue-600 mb-2">Estudiantes Cursando</h3>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full border rounded-lg text-sm">
-                    <thead>
-                      <tr className="bg-blue-50">
-                        <th className="px-4 py-2 text-left text-blue-800 font-semibold">Nombre</th>
-                        <th className="px-4 py-2 text-left text-blue-800 font-semibold">Email</th>
-                        <th className="px-4 py-2 text-center text-blue-800 font-semibold">Estado</th>
-                        <th className="px-4 py-2 text-center text-blue-800 font-semibold">Acciones</th>
-                        <th className="px-4 py-2 text-center text-blue-800 font-semibold">Accesos</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {estudiantes
-                        .filter(est => est.modulosAsignados?.some(m => m.id === selectedModule.id && (m.estado === 'cursando' || m.estado === 'pendiente')))
-                        .map((estudiante, idx) => (
-                          <tr key={estudiante.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-blue-50/50'}>
-                            <td className="px-4 py-3 font-semibold text-gray-800 whitespace-nowrap">{estudiante.name} {estudiante.lastName}</td>
-                            <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{estudiante.email}</td>
-                            <td className="px-4 py-3 text-center">
-                              <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold border bg-blue-100 text-blue-800 border-blue-300">Cursando</span>
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              <select
-                                className="px-2 py-1 rounded-full text-xs font-semibold border bg-blue-100 text-blue-800 border-blue-300"
-                                value={estudiante.modulosAsignados.find(m => m.id === selectedModule.id)?.estado || 'cursando'}
-                                onChange={e => updateModuleStatus(estudiante.id, selectedModule.id, e.target.value)}
-                              >
-                                <option value="pendiente">Pendiente</option>
-                                <option value="cursando">Cursando</option>
-                                <option value="aprobado">Aprobado</option>
-                              </select>
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              <div className="flex justify-center gap-2">
-                                <Link to={`/dashboard/grades?student=${estudiante.id}&module=${selectedModule.id}`} className="px-3 py-1 bg-[#23408e] text-white rounded-full text-xs hover:bg-blue-700 transition-colors">Calificar</Link>
-                                <Link to={`/dashboard/attendance?student=${estudiante.id}&module=${selectedModule.id}`} className="px-3 py-1 bg-[#009245] text-white rounded-full text-xs hover:bg-green-700 transition-colors">Asistencia</Link>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              {(() => {
+                const estudiantesCursando = (selectedModule.estudiantes || []).filter(est => {
+                  const modEst = est.modulosAsignados?.find(m => m.id === selectedModule.id);
+                  return modEst && (modEst.estado === 'cursando' || modEst.estado === 'pendiente');
+                });
 
-              {/* Estudiantes Aprobados */}
-              <div>
-                <h3 className="text-lg font-bold text-green-600 mb-2">Estudiantes Aprobados</h3>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full border rounded-lg text-sm">
-                    <thead>
-                      <tr className="bg-green-50">
-                        <th className="px-4 py-2 text-left text-green-800 font-semibold">Nombre</th>
-                        <th className="px-4 py-2 text-left text-green-800 font-semibold">Email</th>
-                        <th className="px-4 py-2 text-center text-green-800 font-semibold">Estado</th>
-                        <th className="px-4 py-2 text-center text-green-800 font-semibold">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {estudiantes
-                        .filter(est => est.modulosAsignados?.some(m => m.id === selectedModule.id && m.estado === 'aprobado'))
-                        .map((estudiante, idx) => (
-                          <tr key={estudiante.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-green-50/50'}>
-                            <td className="px-4 py-3 font-semibold text-gray-800 whitespace-nowrap">{estudiante.name} {estudiante.lastName}</td>
-                            <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{estudiante.email}</td>
-                            <td className="px-4 py-3 text-center">
-                              <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold border bg-green-100 text-green-800 border-green-300">Aprobado</span>
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              <select
-                                className="px-2 py-1 rounded-full text-xs font-semibold border bg-green-100 text-green-800 border-green-300"
-                                value="aprobado"
-                                onChange={e => updateModuleStatus(estudiante.id, selectedModule.id, e.target.value)}
-                              >
-                                <option value="aprobado">Aprobado</option>
-                                <option value="cursando">Cursando</option>
-                              </select>
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+                const estudiantesAprobados = (selectedModule.estudiantes || []).filter(est => 
+                  est.modulosAsignados?.some(m => m.id === selectedModule.id && m.estado === 'aprobado')
+                );
+
+                return (
+                  <>
+                    {estudiantesCursando.length > 0 && (
+                      <div className="mb-8">
+                        <h3 className="text-lg font-bold text-blue-600 mb-2">Estudiantes Cursando</h3>
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full border rounded-lg text-sm">
+                            <thead>
+                              <tr className="bg-blue-50">
+                                <th className="px-4 py-2 text-left text-blue-800 font-semibold">Nombre</th>
+                                <th className="px-4 py-2 text-left text-blue-800 font-semibold">Email</th>
+                                <th className="px-4 py-2 text-center text-blue-800 font-semibold">Estado</th>
+                                <th className="px-4 py-2 text-center text-blue-800 font-semibold">Acciones</th>
+                                <th className="px-4 py-2 text-center text-blue-800 font-semibold">Accesos</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {estudiantesCursando.map((estudiante, idx) => (
+                                <tr key={estudiante.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-blue-50/50'}>
+                                  <td className="px-4 py-3 font-semibold text-gray-800 whitespace-nowrap">{estudiante.name} {estudiante.lastName}</td>
+                                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{estudiante.email}</td>
+                                  <td className="px-4 py-3 text-center">
+                                    <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold border bg-blue-100 text-blue-800 border-blue-300">Cursando</span>
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    <select
+                                      className="px-2 py-1 rounded-full text-xs font-semibold border bg-blue-100 text-blue-800 border-blue-300"
+                                      value={estudiante.modulosAsignados.find(m => m.id === selectedModule.id)?.estado || 'cursando'}
+                                      onChange={e => updateModuleStatus(estudiante.id, selectedModule.id, e.target.value)}
+                                    >
+                                      <option value="pendiente">Pendiente</option>
+                                      <option value="cursando">Cursando</option>
+                                      <option value="aprobado">Aprobado</option>
+                                    </select>
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    <div className="flex justify-center gap-2">
+                                      <Link to={`/dashboard/grades?student=${estudiante.id}&module=${selectedModule.id}`} className="px-3 py-1 bg-[#23408e] text-white rounded-full text-xs hover:bg-blue-700 transition-colors">Calificar</Link>
+                                      <Link to={`/dashboard/attendance?student=${estudiante.id}&module=${selectedModule.id}`} className="px-3 py-1 bg-[#009245] text-white rounded-full text-xs hover:bg-green-700 transition-colors">Asistencia</Link>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {estudiantesAprobados.length > 0 && (
+                      <div>
+                        <h3 className="text-lg font-bold text-green-600 mb-2">Estudiantes Aprobados</h3>
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full border rounded-lg text-sm">
+                            <thead>
+                              <tr className="bg-green-50">
+                                <th className="px-4 py-2 text-left text-green-800 font-semibold">Nombre</th>
+                                <th className="px-4 py-2 text-left text-green-800 font-semibold">Email</th>
+                                <th className="px-4 py-2 text-center text-green-800 font-semibold">Estado</th>
+                                <th className="px-4 py-2 text-center text-green-800 font-semibold">Acciones</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {estudiantesAprobados.map((estudiante, idx) => (
+                                <tr key={estudiante.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-green-50/50'}>
+                                  <td className="px-4 py-3 font-semibold text-gray-800 whitespace-nowrap">{estudiante.name} {estudiante.lastName}</td>
+                                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{estudiante.email}</td>
+                                  <td className="px-4 py-3 text-center">
+                                    <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold border bg-green-100 text-green-800 border-green-300">Aprobado</span>
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    <select
+                                      className="px-2 py-1 rounded-full text-xs font-semibold border bg-green-100 text-green-800 border-green-300"
+                                      value="aprobado"
+                                      onChange={e => updateModuleStatus(estudiante.id, selectedModule.id, e.target.value)}
+                                    >
+                                      <option value="aprobado">Aprobado</option>
+                                      <option value="cursando">Cursando</option>
+                                    </select>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
 
             <div className="flex justify-end mt-6">

@@ -17,6 +17,7 @@ const StudentsTable = () => {
   const [careerFilter, setCareerFilter] = useState('');
   const [scopeFilter, setScopeFilter] = useState('');
   const [courseFilter, setCourseFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState(null);
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -224,8 +225,10 @@ const StudentsTable = () => {
     const matchesCareerOrCourse = scopeFilter === 'course'
       ? (courseFilter ? (Array.isArray(student.courses) && student.courses.includes(courseFilter)) : true)
       : (careerFilter ? student.career === careerFilter : true);
+    
+    const matchesStatus = statusFilter === 'all' ? true : student.status === statusFilter;
 
-    return matchesText && matchesCareerOrCourse && matchesScope;
+    return matchesText && matchesCareerOrCourse && matchesScope && matchesStatus;
   });
 
   const getTeacherName = (teacherId) => {
@@ -276,6 +279,11 @@ const StudentsTable = () => {
       </div>
 
       <div className="bg-white rounded-lg shadow p-4 mb-6 flex flex-col md:flex-row gap-4 items-center">
+        <div className="flex items-center gap-2 mb-4 md:mb-0">
+          <button onClick={() => setStatusFilter('all')} className={`px-3 py-1 rounded-full text-xs font-semibold ${statusFilter === 'all' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>Todos ({students.length})</button>
+          <button onClick={() => setStatusFilter('active')} className={`px-3 py-1 rounded-full text-xs font-semibold ${statusFilter === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>Activos ({students.filter(s => s.status === 'active').length})</button>
+          <button onClick={() => setStatusFilter('inactive')} className={`px-3 py-1 rounded-full text-xs font-semibold ${statusFilter === 'inactive' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>Inactivos ({students.filter(s => s.status === 'inactive').length})</button>
+        </div>
         <div className="flex-1 relative w-full">
           <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>
           <input
