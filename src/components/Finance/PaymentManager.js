@@ -350,10 +350,10 @@ const PaymentManager = () => {
   e.preventDefault();
   setLoading(true);
   try {
-    let dataToSave = { 
-        ...formData,
-        periodo: selectedPeriod,
-        semestre: formData.semestre || selectedSemester, 
+    let dataToSave = {
+      ...formData,
+      periodo: selectedPeriod,
+      semestre: selectedSemester,
     };
     if (isStudentPayment) {
       dataToSave.teacherId = '';
@@ -639,7 +639,29 @@ const PaymentManager = () => {
               </button>
             </div>
           )}
-          <button onClick={() => setIsDialogOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md font-semibold flex items-center w-full sm:w-auto justify-center">
+          <button onClick={() => {
+            // Al abrir para una nueva transacción, asegurarse que el form data tiene el período y semestre correctos
+            if (!editingTransaction) {
+              setFormData(prev => ({
+                ...prev,
+                periodo: selectedPeriod,
+                semestre: selectedSemester,
+                // Resetear otros campos si es necesario
+                type: 'income',
+                category: '',
+                description: '',
+                amount: 0,
+                status: 'completed',
+                date: format(new Date(), 'yyyy-MM-dd'),
+                studentId: '',
+                teacherId: '',
+                courseId: '',
+                moduleId: '',
+                ambito: 'carrera',
+              }));
+            }
+            setIsDialogOpen(true);
+          }} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md font-semibold flex items-center w-full sm:w-auto justify-center">
             <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
             Nueva Transacción
           </button>
