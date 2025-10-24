@@ -29,6 +29,8 @@ const UserManagement = () => {
   const [editId, setEditId] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
 
   useEffect(() => {
     fetchUsers();
@@ -163,6 +165,27 @@ const UserManagement = () => {
             + Nuevo Usuario
           </button>
         )}
+      </div>
+
+      {/* Filtros y Búsqueda */}
+      <div className="flex justify-start items-center mb-4 gap-4">
+        <input
+          type="text"
+          placeholder="Buscar por nombre o apellido..."
+          className="p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+        <select
+          className="p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
+          value={roleFilter}
+          onChange={(e) => setRoleFilter(e.target.value)}
+        >
+          <option value="">Todos los roles</option>
+          {ROLES.map(r => (
+            <option key={r.value} value={r.value}>{r.label}</option>
+          ))}
+        </select>
       </div>
 
       {/* Modal de formulario */}
@@ -302,7 +325,15 @@ const UserManagement = () => {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {users.map((user) => (
+            {users
+              .filter(user => {
+                const fullName = `${user.name || ''} ${user.lastName || ''}`.toLowerCase();
+                const search = searchTerm.toLowerCase();
+                const roleMatch = roleFilter ? user.role === roleFilter : true;
+                const nameMatch = fullName.includes(search);
+                return roleMatch && nameMatch;
+              })
+              .map((user) => (
               <tr key={user.id}>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm font-medium text-[#23408e]">{user.email}</div>
