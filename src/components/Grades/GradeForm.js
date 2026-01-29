@@ -78,20 +78,42 @@ const GradeForm = ({
   }, [modules, scope, selectedSemester]);
 
   const availableStudents = useMemo(() => {
-    if (!form.moduleId) return []; // **CAMBIO**: No mostrar estudiantes hasta que se elija un módulo
+    if (!form.moduleId) return [];
 
-    if (scope === 'career') {
-        return students.filter(s => !selectedSemester || String(s.semester) === String(selectedSemester));
+    const selectedModule = availableModules.find(m => m.id === form.moduleId);
+    if (!selectedModule) return [];
+
+    // ESTRATEGIA 1: Si el módulo tiene propiedades de carrera/curso, filtrar estudiantes por eso
+    if (scope === 'career' && selectedModule.careerId) {
+      // Filtrar estudiantes que pertenecen a la misma carrera Y al mismo semestre
+      return students.filter(s => {
+        const isInCareer = s.careerId === selectedModule.careerId || 
+                          s.career === selectedModule.carrera ||
+                          s.carrera === selectedModule.carrera;
+        const isInSemester = !selectedSemester || 
+                            String(s.semester) === String(selectedSemester) ||
+                            String(s.semestre) === String(selectedSemester);
+        return isInCareer && isInSemester;
+      });
     }
-    if (scope === 'course') {
-        const selectedModule = availableModules.find(m => m.id === form.moduleId);
-        if (selectedModule) {
-            return students.filter(s => Array.isArray(s.courses) && s.courses.includes(selectedModule.courseId));
+
+    // ESTRATEGIA 2: Si es curso, filtrar por courseId
+    if (scope === 'course' && selectedModule.courseId) {
+      return students.filter(s => {
+        if (Array.isArray(s.courses)) {
+          return s.courses.includes(selectedModule.courseId);
         }
-        return students.filter(s => Array.isArray(s.courses) && s.courses.length > 0);
+        return false;
+      });
     }
-    return [];
-  }, [students, scope, selectedSemester, form.moduleId, availableModules]);
+
+    // ESTRATEGIA 3: Mostrar todos los estudiantes del semestre actual
+    return students.filter(s => 
+      !selectedSemester || 
+      String(s.semester) === String(selectedSemester) ||
+      String(s.semestre) === String(selectedSemester)
+    );
+  }, [form.moduleId, availableModules, students, scope, selectedSemester]);
 
   const handleChange = e => {
     const { name, value } = e.target;
