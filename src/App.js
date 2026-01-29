@@ -4,6 +4,7 @@ import { auth, db } from './firebaseConfig';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { AuthContext } from './context/AuthContext';
+import { DefaultPeriodProvider } from './context/DefaultPeriodContext';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
@@ -71,10 +72,11 @@ function App() {
   }
 
   return (
-    <AuthContext.Provider value={{ currentUser, setCurrentUser }}>
-      <Router>
-        <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick pauseOnFocusLoss draggable pauseOnHover />
-        <Routes>
+    <DefaultPeriodProvider>
+      <AuthContext.Provider value={{ currentUser, setCurrentUser }}>
+        <Router>
+          <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick pauseOnFocusLoss draggable pauseOnHover />
+          <Routes>
           {/* Ruta pública de login */}
           <Route path="/login" element={<LoginForm />} />
 
@@ -173,7 +175,8 @@ function App() {
           <Route path="*" element={<Page404 />} />
         </Routes>
       </Router>
-    </AuthContext.Provider>
+      </AuthContext.Provider>
+    </DefaultPeriodProvider>
   );
 }
 

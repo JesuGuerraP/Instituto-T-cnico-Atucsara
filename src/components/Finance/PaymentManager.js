@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, setDoc } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 import { format } from 'date-fns';
@@ -6,6 +6,7 @@ import { toast } from 'react-toastify';
 import PaymentReceipt from './PaymentReceipt';
 import Select from 'react-select';
 import { useAuth } from '../../context/AuthContext';
+import { DefaultPeriodContext } from '../../context/DefaultPeriodContext';
 
 const categoryOptions = [
   'Matrícula',
@@ -43,7 +44,8 @@ const calculateDiscountedAmount = (amount, discount) => {
 
 const PaymentManager = () => {
   const { currentUser } = useAuth();
-  const DEFAULT_PERIOD = '2025-1';
+  const { defaultPeriod } = useContext(DefaultPeriodContext);
+  const DEFAULT_PERIOD = defaultPeriod || '2025-1';
 
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -107,15 +109,27 @@ const PaymentManager = () => {
           return parseInt(periodB) - parseInt(periodA);
         });
         setAcademicPeriods(sortedPeriods);
-        setSelectedPeriod(sortedPeriods[0]); // Set the most recent as default
+        // No establecer selectedPeriod aquí, dejar que el useEffect lo haga
       } else {
         setAcademicPeriods([DEFAULT_PERIOD]);
-        setSelectedPeriod(DEFAULT_PERIOD);
       }
     } catch (error) {
       console.error('Error al cargar períodos:', error);
     }
   };
+
+  // Sincronizar selectedPeriod con defaultPeriod del contexto
+  useEffect(() => {
+    if (defaultPeriod && academicPeriods.length > 0) {
+      if (academicPeriods.includes(defaultPeriod)) {
+        setSelectedPeriod(defaultPeriod);
+      } else if (academicPeriods.length > 0) {
+        setSelectedPeriod(academicPeriods[0]);
+      }
+    } else if (academicPeriods.length > 0) {
+      setSelectedPeriod(academicPeriods[0]);
+    }
+  }, [defaultPeriod, academicPeriods]);
 
   const fetchSemesterPrices = async () => {
     try {
@@ -217,6 +231,15 @@ const PaymentManager = () => {
     };
     fetchData();
   }, [currentUser]);
+
+  // Sincronizar selectedPeriod cuando cambia defaultPeriod del contexto
+  useEffect(() => {
+    if (defaultPeriod && academicPeriods.length > 0) {
+      if (academicPeriods.includes(defaultPeriod)) {
+        setSelectedPeriod(defaultPeriod);
+      }
+    }
+  }, [defaultPeriod]);
 
   // Cargar descuentos de curso
   const fetchCourseDiscounts = async () => {

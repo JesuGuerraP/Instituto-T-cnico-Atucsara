@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { db } from '../../firebaseConfig';
 import { useAuth } from '../../context/AuthContext';
+import { DefaultPeriodContext } from '../../context/DefaultPeriodContext';
 import { toast } from 'react-toastify';
 
 const ROLES = [
@@ -20,10 +21,13 @@ const initialFormState = {
   role: ''
 };
 
+const DEFAULT_PERIOD = '2025-1';
+
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const { currentUser } = useAuth();
+  const { defaultPeriod, setDefaultPeriod } = useContext(DefaultPeriodContext);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ ...initialFormState });
   const [editId, setEditId] = useState(null);
@@ -31,6 +35,12 @@ const UserManagement = () => {
   const [userToDelete, setUserToDelete] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
+  const [periodOptions] = useState([
+    '2025-1',
+    '2025-2',
+    '2026-1',
+    '2026-2',
+  ]);
 
   useEffect(() => {
     fetchUsers();
@@ -151,6 +161,11 @@ const UserManagement = () => {
     }
   };
 
+  const handleDefaultPeriodChange = (newPeriod) => {
+    setDefaultPeriod(newPeriod);
+    // Aquí se puede agregar lógica para actualizar el periodo en otros módulos
+  };
+
   if (loading) return <div className="text-[#23408e] font-semibold">Cargando usuarios...</div>;
 
   return (
@@ -166,6 +181,31 @@ const UserManagement = () => {
           </button>
         )}
       </div>
+
+      {/* Período por Defecto */}
+      {currentUser.role === 'admin' && (
+        <div className="mb-6 bg-blue-50 p-4 rounded-lg border border-blue-200">
+          <label className="block text-sm font-bold text-[#23408e] mb-2">
+            Período Académico por Defecto
+          </label>
+          <div className="flex items-center gap-3">
+            <select
+              value={defaultPeriod}
+              onChange={(e) => setDefaultPeriod(e.target.value)}
+              className="p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e] font-semibold text-[#009245]"
+            >
+              {periodOptions.map(period => (
+                <option key={period} value={period}>
+                  {period}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-600">
+              Este período se aplicará por defecto en Asistencia, Finanzas y Notas
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Filtros y Búsqueda */}
       <div className="flex justify-start items-center mb-4 gap-4">

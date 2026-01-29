@@ -6,6 +6,7 @@ import { toast } from 'react-toastify';
 import Modal from 'react-modal';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
+import { DefaultPeriodContext } from '../../context/DefaultPeriodContext';
 
 const months = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -13,8 +14,8 @@ const months = [
 ];
 
 const AttendanceManager = () => {
-  const DEFAULT_PERIOD = '2025-1';
   const { currentUser } = useContext(AuthContext);
+  const { defaultPeriod } = useContext(DefaultPeriodContext);
   const [students, setStudents] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState('');
   const [modules, setModules] = useState([]);
@@ -24,10 +25,19 @@ const AttendanceManager = () => {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedPeriod, setSelectedPeriod] = useState('');
   const [selectedSemester, setSelectedSemester] = useState('');
-  const [academicPeriods, setAcademicPeriods] = useState([DEFAULT_PERIOD]);
+  const [academicPeriods, setAcademicPeriods] = useState([defaultPeriod]);
   const [selectedScope, setSelectedScope] = useState('career'); // 'career' | 'course'
   const [coursesList, setCoursesList] = useState([]); // [{id, nombre}]
   const [selectedCourse, setSelectedCourse] = useState('');
+
+  // Sincronizar selectedPeriod con defaultPeriod del contexto
+  useEffect(() => {
+    if (defaultPeriod && academicPeriods.length > 0) {
+      if (academicPeriods.includes(defaultPeriod)) {
+        setSelectedPeriod(defaultPeriod);
+      }
+    }
+  }, [defaultPeriod, academicPeriods]);
 
   // Función para cargar períodos académicos
   const loadAcademicPeriods = async () => {
@@ -39,7 +49,7 @@ const AttendanceManager = () => {
         .filter(Boolean);
       
       // Ensure DEFAULT_PERIOD is present for migration purposes, but don't rely on it for default selection.
-      const allPeriods = Array.from(new Set([...periods, DEFAULT_PERIOD]));
+      const allPeriods = Array.from(new Set([...periods, defaultPeriod]));
 
       if (allPeriods.length > 0) {
         const sortedPeriods = allPeriods.sort((a, b) => {
@@ -52,8 +62,8 @@ const AttendanceManager = () => {
         setAcademicPeriods(sortedPeriods);
         setSelectedPeriod(sortedPeriods[0]); // Set the most recent as default
       } else {
-        setAcademicPeriods([DEFAULT_PERIOD]);
-        setSelectedPeriod(DEFAULT_PERIOD);
+        setAcademicPeriods([defaultPeriod]);
+        setSelectedPeriod(defaultPeriod);
       }
     } catch (error) {
       console.error('Error al cargar períodos:', error);

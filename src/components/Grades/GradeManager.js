@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useContext } from 'react';
 import { collection, getDocs, deleteDoc, doc, updateDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 import { useAuth } from '../../context/AuthContext';
 import GradeForm from './GradeForm';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
+import { DefaultPeriodContext } from '../../context/DefaultPeriodContext';
 
 // Opciones de grupo hardcodeadas para consistencia
 const GROUP_OPTIONS = [
@@ -14,7 +15,7 @@ const GROUP_OPTIONS = [
 ];
 
 const GradeManager = () => {
-  const DEFAULT_PERIOD = '2025-1';
+  const { defaultPeriod } = useContext(DefaultPeriodContext);
   const navigate = useNavigate();
   const { currentUser } = useAuth();
 
@@ -22,7 +23,7 @@ const GradeManager = () => {
   const [grades, setGrades] = useState([]);
   const [students, setStudents] = useState([]);
   const [teachers, setTeachers] = useState([]);
-  const [academicPeriods, setAcademicPeriods] = useState([DEFAULT_PERIOD]);
+  const [academicPeriods, setAcademicPeriods] = useState([defaultPeriod]);
   const [teacherModules, setTeacherModules] = useState([]);
   
   // Estados de UI y filtros
@@ -49,7 +50,7 @@ const GradeManager = () => {
       const periodsRef = collection(db, 'academicPeriods');
       const periodsSnap = await getDocs(periodsRef);
       const periods = periodsSnap.docs.map(doc => doc.data().period).filter(Boolean);
-      const allPeriods = Array.from(new Set([DEFAULT_PERIOD, ...periods]));
+      const allPeriods = Array.from(new Set([defaultPeriod, ...periods]));
 
       if (allPeriods.length > 0) {
         const sortedPeriods = allPeriods.sort((a, b) => {
@@ -61,13 +62,22 @@ const GradeManager = () => {
         setAcademicPeriods(sortedPeriods);
         setSelectedPeriod(sortedPeriods[0]); // Set the most recent as default
       } else {
-        setAcademicPeriods([DEFAULT_PERIOD]);
-        setSelectedPeriod(DEFAULT_PERIOD);
+        setAcademicPeriods([defaultPeriod]);
+        setSelectedPeriod(defaultPeriod);
       }
     } catch (error) {
       console.error('Error al cargar períodos:', error);
     }
   };
+
+  // Sincronizar selectedPeriod con defaultPeriod del contexto
+  useEffect(() => {
+    if (defaultPeriod && academicPeriods.length > 0) {
+      if (academicPeriods.includes(defaultPeriod)) {
+        setSelectedPeriod(defaultPeriod);
+      }
+    }
+  }, [defaultPeriod, academicPeriods]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -194,7 +204,7 @@ const GradeManager = () => {
   // Calificaciones filtradas
   const filteredGrades = useMemo(() => {
     return grades.filter(g => {
-      const gradePeriod = g.period || DEFAULT_PERIOD;
+      const gradePeriod = g.period || defaultPeriod;
       if (selectedPeriod && gradePeriod !== selectedPeriod) return false;
 
       const moduleInfo = teacherModules.find(m => m.id === g.moduleId);
@@ -472,7 +482,7 @@ const GradeManager = () => {
                 <div className="flex justify-between items-start mb-3">
                   <span className={`text-2xl font-bold px-3 py-1 rounded-md ${gradeColor}`}>{g.grade}</span>
                   <div className="text-right">
-                    <span className="text-xs text-gray-500">{g.period || DEFAULT_PERIOD}</span>
+                    <span className="text-xs text-gray-500">{g.period || defaultPeriod}</span>
                     <span className="block text-xs text-gray-400">{g.date}</span>
                   </div>
                 </div>
