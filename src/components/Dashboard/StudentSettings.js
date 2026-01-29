@@ -1,6 +1,7 @@
 import { useState, useContext } from 'react';
 import { getAuth, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
 import { AuthContext } from '../../context/AuthContext';
+import { toast } from 'react-toastify';
 
 const StudentSettings = () => {
   const { currentUser } = useContext(AuthContext);
@@ -11,6 +12,35 @@ const StudentSettings = () => {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  // Reglas de contraseña (coincidentes con UserManagement)
+  const PASSWORD_REQUIREMENTS = {
+    minLength: 8,
+    hasUpperCase: /[A-Z]/,
+    hasLowerCase: /[a-z]/,
+    hasNumbers: /[0-9]/,
+    hasSpecialChar: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/
+  };
+
+  const validatePassword = (password) => {
+    const errors = [];
+    if ((password || '').length < PASSWORD_REQUIREMENTS.minLength) {
+      errors.push(`Mínimo ${PASSWORD_REQUIREMENTS.minLength} caracteres`);
+    }
+    if (!PASSWORD_REQUIREMENTS.hasUpperCase.test(password)) {
+      errors.push('Al menos una mayúscula');
+    }
+    if (!PASSWORD_REQUIREMENTS.hasLowerCase.test(password)) {
+      errors.push('Al menos una minúscula');
+    }
+    if (!PASSWORD_REQUIREMENTS.hasNumbers.test(password)) {
+      errors.push('Al menos un número');
+    }
+    if (!PASSWORD_REQUIREMENTS.hasSpecialChar.test(password)) {
+      errors.push('Al menos un carácter especial (!@#$%^&*)');
+    }
+    return errors;
+  };
+
   const handleChangePassword = async (e) => {
     e.preventDefault();
     setMsg('');
@@ -18,8 +48,12 @@ const StudentSettings = () => {
       setMsg('La nueva contraseña y la confirmación no coinciden.');
       return;
     }
-    if (newPassword.length < 6) {
-      setMsg('La nueva contraseña debe tener al menos 6 caracteres.');
+
+    const pwErrors = validatePassword(newPassword);
+    if (pwErrors.length > 0) {
+      const msgText = 'Contraseña inválida: ' + pwErrors.join(', ');
+      setMsg(msgText);
+      toast.error(msgText);
       return;
     }
     setLoading(true);
@@ -31,19 +65,29 @@ const StudentSettings = () => {
       const credential = EmailAuthProvider.credential(user.email, currentPassword);
       await reauthenticateWithCredential(user, credential);
       await updatePassword(user, newPassword);
-      setMsg('Contraseña actualizada correctamente.');
+      const successMsg = 'Contraseña actualizada correctamente.';
+      setMsg(successMsg);
+      toast.success(successMsg);
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
     } catch (error) {
       if (error.code === 'auth/wrong-password') {
-        setMsg('La contraseña actual es incorrecta.');
+        const em = 'La contraseña actual es incorrecta.';
+        setMsg(em);
+        toast.error(em);
       } else if (error.code === 'auth/weak-password') {
-        setMsg('La nueva contraseña es demasiado débil.');
+        const em = 'La nueva contraseña es demasiado débil. Debe cumplir los requisitos.';
+        setMsg(em);
+        toast.error(em);
       } else if (error.code === 'auth/requires-recent-login') {
-        setMsg('Por seguridad, debes volver a iniciar sesión para cambiar la contraseña.');
+        const em = 'Por seguridad, debes volver a iniciar sesión para cambiar la contraseña.';
+        setMsg(em);
+        toast.error(em);
       } else {
-        setMsg('Error: ' + (error.message || error.code));
+        const em = 'Error: ' + (error.message || error.code);
+        setMsg(em);
+        toast.error(em);
       }
     } finally {
       setLoading(false);
@@ -58,6 +102,10 @@ const StudentSettings = () => {
     }
     return null;
   };
+
+  const pwErrors = validatePassword(newPassword);
+  const passwordsMatch = newPassword === confirmPassword && newPassword !== '';
+  const canSubmit = !loading && passwordsMatch && pwErrors.length === 0 && currentPassword;
 
   return (
     <div className="max-w-lg mx-auto mt-10 bg-white rounded-2xl shadow-lg p-8 border border-gray-200">
@@ -103,12 +151,29 @@ const StudentSettings = () => {
             className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-[#23408e]"
             value={newPassword}
             onChange={e => setNewPassword(e.target.value)}
-            minLength={6}
             required
             disabled={loading}
             autoComplete="new-password"
-            placeholder="Mínimo 6 caracteres, combina letras y números"
+            placeholder="Mínimo 8 caracteres, incluye mayúscula, minúscula, número y símbolo"
           />
+          {/* Indicador de requisitos */}
+          <div className="mt-2 p-2 bg-gray-50 rounded text-xs space-y-1">
+            <div className={validatePassword(newPassword).length > 0 ? 'text-red-600' : 'text-green-600'}>
+              ✓ {newPassword.length}+ caracteres ({PASSWORD_REQUIREMENTS.minLength} requeridos)
+            </div>
+            <div className={PASSWORD_REQUIREMENTS.hasUpperCase.test(newPassword) ? 'text-green-600' : 'text-gray-400'}>
+              {PASSWORD_REQUIREMENTS.hasUpperCase.test(newPassword) ? '✓' : '○'} Una mayúscula
+            </div>
+            <div className={PASSWORD_REQUIREMENTS.hasLowerCase.test(newPassword) ? 'text-green-600' : 'text-gray-400'}>
+              {PASSWORD_REQUIREMENTS.hasLowerCase.test(newPassword) ? '✓' : '○'} Una minúscula
+            </div>
+            <div className={PASSWORD_REQUIREMENTS.hasNumbers.test(newPassword) ? 'text-green-600' : 'text-gray-400'}>
+              {PASSWORD_REQUIREMENTS.hasNumbers.test(newPassword) ? '✓' : '○'} Un número
+            </div>
+            <div className={PASSWORD_REQUIREMENTS.hasSpecialChar.test(newPassword) ? 'text-green-600' : 'text-gray-400'}>
+              {PASSWORD_REQUIREMENTS.hasSpecialChar.test(newPassword) ? '✓' : '○'} Un carácter especial (!@#$%^&*)
+            </div>
+          </div>
         </div>
         <div>
           <label className="block text-sm font-semibold mb-1">Confirmar nueva contraseña</label>
@@ -117,12 +182,14 @@ const StudentSettings = () => {
             className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-[#23408e]"
             value={confirmPassword}
             onChange={e => setConfirmPassword(e.target.value)}
-            minLength={6}
             required
             disabled={loading}
             autoComplete="new-password"
             placeholder="Repite la nueva contraseña"
           />
+          {confirmPassword && !passwordsMatch && (
+            <p className="text-xs text-red-600 mt-1">Las contraseñas no coinciden</p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <input
@@ -137,7 +204,7 @@ const StudentSettings = () => {
         <button
           type="submit"
           className="bg-[#23408e] text-white rounded px-4 py-2 font-semibold hover:bg-[#009245] transition disabled:opacity-60"
-          disabled={loading}
+          disabled={!canSubmit}
         >
           {loading ? 'Cambiando...' : 'Cambiar contraseña'}
         </button>

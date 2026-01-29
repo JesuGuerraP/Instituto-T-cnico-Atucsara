@@ -1,6 +1,6 @@
 import { useState, useEffect, useContext } from 'react';
-import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc, addDoc } from 'firebase/firestore';
+import { getAuth, createUserWithEmailAndPassword, signOut, signInWithEmailAndPassword } from 'firebase/auth';
 import { db } from '../../firebaseConfig';
 import { useAuth } from '../../context/AuthContext';
 import { DefaultPeriodContext } from '../../context/DefaultPeriodContext';
@@ -13,19 +13,50 @@ const ROLES = [
   { value: 'student', label: 'Estudiante' }
 ];
 
+// Validaciones de contraseña
+const PASSWORD_REQUIREMENTS = {
+  minLength: 8,
+  hasUpperCase: /[A-Z]/,
+  hasLowerCase: /[a-z]/,
+  hasNumbers: /[0-9]/,
+  hasSpecialChar: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/
+};
+
+const validatePassword = (password) => {
+  const errors = [];
+  
+  if (password.length < PASSWORD_REQUIREMENTS.minLength) {
+    errors.push(`Mínimo ${PASSWORD_REQUIREMENTS.minLength} caracteres`);
+  }
+  if (!PASSWORD_REQUIREMENTS.hasUpperCase.test(password)) {
+    errors.push('Al menos una mayúscula');
+  }
+  if (!PASSWORD_REQUIREMENTS.hasLowerCase.test(password)) {
+    errors.push('Al menos una minúscula');
+  }
+  if (!PASSWORD_REQUIREMENTS.hasNumbers.test(password)) {
+    errors.push('Al menos un número');
+  }
+  if (!PASSWORD_REQUIREMENTS.hasSpecialChar.test(password)) {
+    errors.push('Al menos un carácter especial (!@#$%^&*)');
+  }
+  
+  return errors;
+};
+
 const initialFormState = {
   email: '',
   password: '',
+  confirmPassword: '',
   name: '',
   lastName: '',
   role: ''
 };
 
-const DEFAULT_PERIOD = '2025-1';
-
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const { currentUser } = useAuth();
   const { defaultPeriod, setDefaultPeriod } = useContext(DefaultPeriodContext);
   const [showForm, setShowForm] = useState(false);
@@ -35,6 +66,7 @@ const UserManagement = () => {
   const [userToDelete, setUserToDelete] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
+  const [passwordErrors, setPasswordErrors] = useState([]);
   const [periodOptions] = useState([
     '2025-1',
     '2025-2',
@@ -116,11 +148,20 @@ const UserManagement = () => {
   const handleFormChange = (e) => {
     const { name, value } = e.target;
     setForm(prev => ({ ...prev, [name]: value }));
+    
+    // Validar contraseña en tiempo real si se está editando el campo password
+    if (name === 'password' && value) {
+      const errors = validatePassword(value);
+      setPasswordErrors(errors);
+    } else if (name === 'password') {
+      setPasswordErrors([]);
+    }
   };
 
   const handleNewUser = () => {
     setEditId(null);
     setForm({ ...initialFormState });
+    setPasswordErrors([]);
     setShowForm(true);
   };
 
@@ -128,36 +169,120 @@ const UserManagement = () => {
     setShowForm(false);
     setEditId(null);
     setForm({ ...initialFormState });
+    setPasswordErrors([]);
   };
 
   const handleFormSubmit = async (e) => {
     e.preventDefault();
-    if (!form.email || !form.role || (!editId && !form.password)) {
-      toast.error('Email, rol y contraseña son obligatorios');
+    
+    // Validaciones básicas
+    if (!form.email || !form.role || !form.name) {
+      toast.error('Email, rol y nombre son obligatorios');
       return;
     }
 
-    try {
-      if (editId) {
-        // Editar usuario existente
-        const { password, ...rest } = form;
-        await updateDoc(doc(db, 'users', editId), rest);
-        setUsers(users.map(u => u.id === editId ? { ...u, ...rest } : u));
-        toast.success('Usuario actualizado correctamente');
-      } else {
-        // Crear nuevo usuario
-        const auth = getAuth();
-        const userCredential = await createUserWithEmailAndPassword(auth, form.email, form.password);
-        const newId = userCredential.user.uid;
-        const { password, ...userData } = form;
-        await setDoc(doc(db, 'users', newId), userData);
-        setUsers([{ id: newId, ...userData }, ...users]);
-        toast.success('Usuario creado correctamente');
+    if (editId) {
+      // MODO EDICIÓN: Solo actualizar perfil, no contraseña
+      if (!form.password && form.lastName === undefined) {
+        toast.error('Completa al menos un campo para editar');
+        return;
       }
-      handleCloseModal();
-    } catch (error) {
-      console.error("Error saving user:", error);
-      toast.error('Error guardando usuario: ' + (error.message || error));
+
+      setSubmitting(true);
+      try {
+        const updateData = {
+          name: form.name,
+          lastName: form.lastName,
+          email: form.email
+        };
+        
+        await updateDoc(doc(db, 'users', editId), updateData);
+        setUsers(users.map(u => u.id === editId ? { ...u, ...updateData } : u));
+        toast.success('Usuario actualizado correctamente');
+        handleCloseModal();
+      } catch (error) {
+        console.error("Error updating user:", error);
+        toast.error(`Error al actualizar: ${error.message}`);
+      } finally {
+        setSubmitting(false);
+      }
+    } else {
+      // MODO CREACIÓN: Validaciones de contraseña
+      if (!form.password || !form.confirmPassword) {
+        toast.error('Las contraseñas son obligatorias');
+        return;
+      }
+
+      if (form.password !== form.confirmPassword) {
+        toast.error('Las contraseñas no coinciden');
+        return;
+      }
+
+      const passwordErrors = validatePassword(form.password);
+      if (passwordErrors.length > 0) {
+        toast.error(`Contraseña débil: ${passwordErrors.join(', ')}`);
+        return;
+      }
+
+      setSubmitting(true);
+      const auth = getAuth();
+      const originalUser = currentUser;
+
+      try {
+        // 1. Crear usuario en Authentication
+        const userCredential = await createUserWithEmailAndPassword(auth, form.email, form.password);
+        const newUserId = userCredential.user.uid;
+
+        // 2. Crear documento en Firestore
+        await setDoc(doc(db, 'users', newUserId), {
+          email: form.email,
+          name: form.name,
+          lastName: form.lastName,
+          role: form.role,
+          createdAt: new Date(),
+          status: 'active'
+        });
+
+        // 3. Volver a loguear como el usuario original (admin) para mantener la sesión
+        if (originalUser && originalUser.email) {
+          // Obtenemos la contraseña del usuario original del localStorage (debe estar guardada en login)
+          const adminPassword = sessionStorage.getItem('adminPassword');
+          if (adminPassword) {
+            try {
+              await signOut(auth);
+              await signInWithEmailAndPassword(auth, originalUser.email, adminPassword);
+              toast.success(`Usuario ${form.email} creado correctamente. Sesión restaurada.`);
+            } catch (reAuthError) {
+              toast.warning(`Usuario creado pero no se pudo restaurar la sesión. Recargue la página.`);
+            }
+          } else {
+            await signOut(auth);
+            toast.warning(`Usuario creado correctamente, pero debe volver a iniciar sesión.`);
+          }
+        }
+
+        // 4. Actualizar lista de usuarios
+        setUsers([{ 
+          id: newUserId, 
+          email: form.email, 
+          name: form.name, 
+          lastName: form.lastName, 
+          role: form.role 
+        }, ...users]);
+
+        handleCloseModal();
+      } catch (error) {
+        console.error("Error creating user:", error);
+        if (error.code === 'auth/email-already-in-use') {
+          toast.error('Este correo ya está registrado en el sistema');
+        } else if (error.code === 'auth/weak-password') {
+          toast.error('La contraseña es muy débil. Debe cumplir con los requisitos.');
+        } else {
+          toast.error(`Error: ${error.message}`);
+        }
+      } finally {
+        setSubmitting(false);
+      }
     }
   };
 
@@ -230,98 +355,164 @@ const UserManagement = () => {
 
       {/* Modal de formulario */}
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-          <div className="bg-white rounded-lg shadow-lg p-8 max-w-lg w-full relative border-l-4 border-[#23408e]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-lg p-8 max-w-lg w-full relative border-l-4 border-[#23408e] my-8">
             <button
               className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-xl"
               onClick={handleCloseModal}
+              disabled={submitting}
             >
               &times;
             </button>
-            <h2 className="text-2xl font-bold mb-4 text-[#23408e]">
+            <h2 className="text-2xl font-bold mb-2 text-[#23408e]">
               {editId ? 'Editar Usuario' : 'Registrar Nuevo Usuario'}
             </h2>
-            <form onSubmit={handleFormSubmit}>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block font-semibold mb-1 text-[#009245]">Email*</label>
-                  <input
-                    type="email"
-                    name="email"
-                    value={form.email}
-                    onChange={handleFormChange}
-                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
-                    required
-                    disabled={!!editId}
-                    placeholder="ejemplo@correo.com"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1 text-[#009245]">Rol*</label>
-                  <select
-                    name="role"
-                    value={form.role}
-                    onChange={handleFormChange}
-                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
-                    required
-                  >
-                    <option value="" disabled>Selecciona un rol</option>
-                    {ROLES.map(r => (
-                      <option key={r.value} value={r.value}>{r.label}</option>
-                    ))}
-                  </select>
-                </div>
-                {!editId && (
-                  <div>
-                    <label className="block font-semibold mb-1 text-[#009245]">Contraseña*</label>
-                    <input
-                      type="password"
-                      name="password"
-                      value={form.password}
-                      onChange={handleFormChange}
-                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
-                      required
-                      placeholder="Mínimo 6 caracteres"
-                      minLength="6"
-                    />
-                  </div>
-                )}
-                <div>
-                  <label className="block font-semibold mb-1 text-[#009245]">Nombre</label>
-                  <input
-                    type="text"
-                    name="name"
-                    value={form.name}
-                    onChange={handleFormChange}
-                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
-                    placeholder="Nombre del usuario"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1 text-[#009245]">Apellido</label>
-                  <input
-                    type="text"
-                    name="lastName"
-                    value={form.lastName}
-                    onChange={handleFormChange}
-                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
-                    placeholder="Apellido del usuario"
-                  />
-                </div>
+            <p className="text-sm text-gray-600 mb-4">
+              {editId ? 'Actualiza la información del usuario' : 'Completa todos los campos requeridos (*)'}
+            </p>
+            
+            <form onSubmit={handleFormSubmit} className="space-y-4">
+              {/* Email */}
+              <div>
+                <label className="block font-semibold mb-1 text-[#009245]">Email *</label>
+                <input
+                  type="email"
+                  name="email"
+                  value={form.email}
+                  onChange={handleFormChange}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
+                  required
+                  disabled={!!editId || submitting}
+                  placeholder="usuario@ejemplo.com"
+                />
+                {!editId && <p className="text-xs text-gray-500 mt-1">No puede ser modificado luego</p>}
               </div>
+
+              {/* Nombre */}
+              <div>
+                <label className="block font-semibold mb-1 text-[#009245]">Nombre *</label>
+                <input
+                  type="text"
+                  name="name"
+                  value={form.name}
+                  onChange={handleFormChange}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
+                  required
+                  disabled={submitting}
+                  placeholder="Juan"
+                />
+              </div>
+
+              {/* Apellido */}
+              <div>
+                <label className="block font-semibold mb-1 text-[#009245]">Apellido</label>
+                <input
+                  type="text"
+                  name="lastName"
+                  value={form.lastName}
+                  onChange={handleFormChange}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
+                  disabled={submitting}
+                  placeholder="Pérez"
+                />
+              </div>
+
+              {/* Rol */}
+              <div>
+                <label className="block font-semibold mb-1 text-[#009245]">Rol *</label>
+                <select
+                  name="role"
+                  value={form.role}
+                  onChange={handleFormChange}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
+                  required
+                  disabled={submitting}
+                >
+                  <option value="" disabled>-- Selecciona un rol --</option>
+                  {ROLES.map(r => (
+                    <option key={r.value} value={r.value}>{r.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Contraseña - Solo en modo creación */}
+              {!editId && (
+                <>
+                  <div className="border-t pt-4">
+                    <p className="text-xs font-semibold text-gray-700 mb-3 text-center">Requisitos de Contraseña</p>
+                    
+                    <div>
+                      <label className="block font-semibold mb-1 text-[#009245]">Contraseña *</label>
+                      <input
+                        type="password"
+                        name="password"
+                        value={form.password}
+                        onChange={handleFormChange}
+                        className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
+                        required
+                        disabled={submitting}
+                        placeholder="Mínimo 8 caracteres"
+                      />
+                      
+                      {/* Indicador de requisitos */}
+                      {form.password && (
+                        <div className="mt-2 p-2 bg-gray-50 rounded text-xs space-y-1">
+                          <div className={validatePassword(form.password).length > 0 ? 'text-red-600' : 'text-green-600'}>
+                            ✓ {form.password.length}+ caracteres ({PASSWORD_REQUIREMENTS.minLength} requeridos)
+                          </div>
+                          <div className={PASSWORD_REQUIREMENTS.hasUpperCase.test(form.password) ? 'text-green-600' : 'text-gray-400'}>
+                            {PASSWORD_REQUIREMENTS.hasUpperCase.test(form.password) ? '✓' : '○'} Una mayúscula
+                          </div>
+                          <div className={PASSWORD_REQUIREMENTS.hasLowerCase.test(form.password) ? 'text-green-600' : 'text-gray-400'}>
+                            {PASSWORD_REQUIREMENTS.hasLowerCase.test(form.password) ? '✓' : '○'} Una minúscula
+                          </div>
+                          <div className={PASSWORD_REQUIREMENTS.hasNumbers.test(form.password) ? 'text-green-600' : 'text-gray-400'}>
+                            {PASSWORD_REQUIREMENTS.hasNumbers.test(form.password) ? '✓' : '○'} Un número
+                          </div>
+                          <div className={PASSWORD_REQUIREMENTS.hasSpecialChar.test(form.password) ? 'text-green-600' : 'text-gray-400'}>
+                            {PASSWORD_REQUIREMENTS.hasSpecialChar.test(form.password) ? '✓' : '○'} Un carácter especial (!@#$%^&*)
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-3">
+                      <label className="block font-semibold mb-1 text-[#009245]">Confirmar Contraseña *</label>
+                      <input
+                        type="password"
+                        name="confirmPassword"
+                        value={form.confirmPassword}
+                        onChange={handleFormChange}
+                        className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
+                        required
+                        disabled={submitting}
+                        placeholder="Repite la contraseña"
+                      />
+                      {form.password && form.confirmPassword && form.password !== form.confirmPassword && (
+                        <p className="text-xs text-red-600 mt-1">Las contraseñas no coinciden</p>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Botones */}
               <div className="mt-6 flex justify-end space-x-3">
                 <button
                   type="button"
                   onClick={handleCloseModal}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  disabled={submitting}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-[#009245] text-white rounded-md hover:bg-[#23408e] font-semibold"
+                  disabled={submitting || (passwordErrors.length > 0 && !editId)}
+                  className="px-4 py-2 bg-[#009245] text-white rounded-md hover:bg-[#23408e] font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
-                  {editId ? 'Actualizar' : 'Guardar'}
+                  {submitting && <span className="animate-spin">⏳</span>}
+                  {submitting ? 'Procesando...' : editId ? 'Actualizar' : 'Crear Usuario'}
                 </button>
               </div>
             </form>
