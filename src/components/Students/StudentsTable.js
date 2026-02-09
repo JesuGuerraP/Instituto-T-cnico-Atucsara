@@ -350,13 +350,30 @@ const StudentsTable = () => {
                   <span><OutgoingMailIcon className="inline w-4 h-4 mr-1 text-[#23408e]" fontSize="small" />{student.email}</span>
                   {student.phone && <span><LocalPhoneIcon className="inline w-4 h-4 mr-1 text-[#23408e]" fontSize="small" />{student.phone}</span>}
                 </div>
-                <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Carrera:</span> {student.career || '—'}</div>
-                {/* Mostrar semestre y/o período según corresponda */}
-                {student.career && (
-                  <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Semestre:</span> {student.semester ? `Semestre ${student.semester}` : 'Sin asignar'}</div>
-                )}
-                {(Array.isArray(student.courses) && student.courses.length > 0) && (
-                  <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Período (curso):</span> {student.coursePeriod || '—'}</div>
+                {/* Mostrar según tipo de inscripción */}
+                {student.career && (Array.isArray(student.courses) && student.courses.length > 0) ? (
+                  // Tipo: Ambos (Carrera y Cursos)
+                  <>
+                    <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Carrera:</span> {student.career}</div>
+                    <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Semestre:</span> {student.semester ? `Semestre ${student.semester}` : 'Sin asignar'}</div>
+                    <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Cursos:</span> {student.courses.map(cid => coursesList.find(c => c.id === cid)?.nombre).filter(Boolean).join(', ') || '—'}</div>
+                    <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Período:</span> {student.coursePeriod || '—'}</div>
+                  </>
+                ) : student.career ? (
+                  // Tipo: Solo Carrera
+                  <>
+                    <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Carrera:</span> {student.career}</div>
+                    <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Semestre:</span> {student.semester ? `Semestre ${student.semester}` : 'Sin asignar'}</div>
+                  </>
+                ) : (Array.isArray(student.courses) && student.courses.length > 0) ? (
+                  // Tipo: Solo Curso
+                  <>
+                    <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Curso:</span> {student.courses.map(cid => coursesList.find(c => c.id === cid)?.nombre).filter(Boolean).join(', ') || '—'}</div>
+                    <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Período:</span> {student.coursePeriod || '—'}</div>
+                  </>
+                ) : (
+                  // Sin carrera ni cursos
+                  <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Estado:</span> Sin inscripción</div>
                 )}
               </div>
             </div>
