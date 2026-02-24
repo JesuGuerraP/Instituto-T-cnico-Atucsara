@@ -4,6 +4,7 @@ import { doc, getDoc, setDoc, updateDoc, collection, getDocs } from 'firebase/fi
 import { db } from '../../firebaseConfig';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
+import { calculatePeriod } from '../../utils/periodHelper';
 
 const StudentForm = () => {
   const { id } = useParams();
@@ -102,11 +103,15 @@ const StudentForm = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      const now = new Date();
+      const period = calculatePeriod(now);
+      
       let studentData = {
         ...student,
         semester: student.semester ? String(student.semester) : '',
         courses: Array.isArray(student.courses) ? student.courses : [],
-        updatedAt: new Date().toISOString()
+        period: period, // Agregar período calculado
+        updatedAt: now.toISOString()
       };
 
       // Clean up data based on enrollment type
@@ -128,7 +133,7 @@ const StudentForm = () => {
         const newDocRef = doc(studentsCol);
         await setDoc(newDocRef, {
           ...studentData,
-          createdAt: new Date().toISOString()
+          createdAt: now.toISOString()
         });
         studentId = newDocRef.id;
         toast.success('Estudiante creado correctamente');

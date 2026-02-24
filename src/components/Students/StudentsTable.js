@@ -7,6 +7,7 @@ import LocalPhoneIcon from '@mui/icons-material/LocalPhone';
 import OutgoingMailIcon from '@mui/icons-material/OutgoingMail';
 import { toast } from 'react-toastify';
 import { Dialog } from '@headlessui/react';
+import { getUniquePeriods, calculatePeriod } from '../../utils/periodHelper';
 
 const StudentsTable = () => {
   const [students, setStudents] = useState([]);
@@ -18,6 +19,7 @@ const StudentsTable = () => {
   const [scopeFilter, setScopeFilter] = useState('');
   const [courseFilter, setCourseFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [periodFilter, setPeriodFilter] = useState(''); // Nuevo filtro de período
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState(null);
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -35,6 +37,7 @@ const StudentsTable = () => {
   const [showSeminariosDetalle, setShowSeminariosDetalle] = useState(false);
   const [showCursosDetalle, setShowCursosDetalle] = useState(false);
   const [courseModulesInfo, setCourseModulesInfo] = useState([]); // [{courseId, courseName, modules: []}]
+  const [uniquePeriods, setUniquePeriods] = useState([]); // Períodos únicos disponibles
 
   const handleUnassignModule = async (studentId, moduleId) => {
     const studentRef = doc(db, 'students', studentId);
@@ -67,10 +70,16 @@ const StudentsTable = () => {
       try {
         const q = query(collection(db, 'students'));
         const querySnapshot = await getDocs(q);
-        const studentsData = querySnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
+        const studentsData = querySnapshot.docs.map(doc => {
+          const data = doc.data();
+          // Calcular período si no existe (para estudiantes antiguos)
+          const period = data.period || (data.createdAt ? calculatePeriod(data.createdAt) : '');
+          return {
+            id: doc.id,
+            ...data,
+            period: period
+          };
+        });
         setStudents(studentsData);
         setLoading(false);
       } catch (error) {
@@ -87,6 +96,11 @@ const StudentsTable = () => {
     fetchStudents();
     fetchTeachers();
   }, []);
+
+  // Actualizar períodos disponibles cuando cambian los estudiantes
+  useEffect(() => {
+    setUniquePeriods(getUniquePeriods(students));
+  }, [students]);
 
   useEffect(() => {
     // Obtener carreras y módulos para el modal y para mostrar nombres de módulos
@@ -227,8 +241,10 @@ const StudentsTable = () => {
       : (careerFilter ? student.career === careerFilter : true);
     
     const matchesStatus = statusFilter === 'all' ? true : student.status === statusFilter;
+    
+    const matchesPeriod = periodFilter ? student.period === periodFilter : true;
 
-    return matchesText && matchesCareerOrCourse && matchesScope && matchesStatus;
+    return matchesText && matchesCareerOrCourse && matchesScope && matchesStatus && matchesPeriod;
   });
 
   const getTeacherName = (teacherId) => {
@@ -278,26 +294,64 @@ const StudentsTable = () => {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow p-4 mb-6 flex flex-col md:flex-row gap-4 items-center">
-        <div className="flex items-center gap-2 mb-4 md:mb-0">
-          <button onClick={() => setStatusFilter('all')} className={`px-3 py-1 rounded-full text-xs font-semibold ${statusFilter === 'all' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>Todos ({students.length})</button>
-          <button onClick={() => setStatusFilter('active')} className={`px-3 py-1 rounded-full text-xs font-semibold ${statusFilter === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>Activos ({students.filter(s => s.status === 'active').length})</button>
-          <button onClick={() => setStatusFilter('inactive')} className={`px-3 py-1 rounded-full text-xs font-semibold ${statusFilter === 'inactive' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>Inactivos ({students.filter(s => s.status === 'inactive').length})</button>
+      {/* SECCIÓN DE BÚSQUEDA Y FILTROS - MINIMALISTA */}
+      <div className="mb-6">
+        {/* Búsqueda */}
+        <div className="bg-white rounded-lg shadow mb-3 p-3">
+          <div className="relative">
+            <svg className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>
+            <input
+              type="text"
+              placeholder="Buscar por nombre, apellido o DNI..."
+              className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#23408e] focus:border-transparent transition bg-white"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
         </div>
-        <div className="flex-1 relative w-full">
-          <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>
-          <input
-            type="text"
-            placeholder="Buscar estudiantes..."
-            className="pl-10 border rounded px-2 py-2 text-sm w-full"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-        <div className="w-full md:w-1/4">
+
+        {/* Filtros compactos */}
+        <div className="bg-white rounded-lg shadow p-3 flex flex-col md:flex-row gap-3 items-center">
+          {/* Estado */}
+          <div className="flex gap-2 w-full md:w-auto">
+            <button 
+              onClick={() => setStatusFilter('all')} 
+              className={`px-3 py-2 rounded-md text-xs font-semibold transition ${statusFilter === 'all' ? 'bg-[#23408e] text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+            >
+              Todos
+            </button>
+            <button 
+              onClick={() => setStatusFilter('active')} 
+              className={`px-3 py-2 rounded-md text-xs font-semibold transition ${statusFilter === 'active' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+            >
+              Activos
+            </button>
+            <button 
+              onClick={() => setStatusFilter('inactive')} 
+              className={`px-3 py-2 rounded-md text-xs font-semibold transition ${statusFilter === 'inactive' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+            >
+              Inactivos
+            </button>
+          </div>
+
+          {/* Divisor */}
+          <div className="hidden md:block w-px h-6 bg-gray-300"></div>
+
+          {/* Ámbito */}
+          <select
+            className="flex-1 md:flex-initial px-3 py-2 border border-gray-200 rounded-md text-xs focus:ring-2 focus:ring-[#23408e] focus:border-transparent transition bg-white"
+            value={scopeFilter}
+            onChange={e => setScopeFilter(e.target.value)}
+          >
+            <option value="">Todos los ámbitos</option>
+            <option value="career">Carrera</option>
+            <option value="course">Curso</option>
+          </select>
+
+          {/* Carrera/Curso */}
           {scopeFilter === 'course' ? (
             <select
-              className="border rounded px-2 py-2 text-sm w-full"
+              className="flex-1 md:flex-initial px-3 py-2 border border-gray-200 rounded-md text-xs focus:ring-2 focus:ring-[#23408e] focus:border-transparent transition bg-white"
               value={courseFilter}
               onChange={e => setCourseFilter(e.target.value)}
             >
@@ -308,7 +362,7 @@ const StudentsTable = () => {
             </select>
           ) : (
             <select
-              className="border rounded px-2 py-2 text-sm w-full"
+              className="flex-1 md:flex-initial px-3 py-2 border border-gray-200 rounded-md text-xs focus:ring-2 focus:ring-[#23408e] focus:border-transparent transition bg-white"
               value={careerFilter}
               onChange={e => setCareerFilter(e.target.value)}
             >
@@ -318,18 +372,87 @@ const StudentsTable = () => {
               ))}
             </select>
           )}
-        </div>
-        <div className="w-full md:w-1/4">
+
+          {/* Período */}
           <select
-            className="border rounded px-2 py-2 text-sm w-full"
-            value={scopeFilter}
-            onChange={e => setScopeFilter(e.target.value)}
+            className="flex-1 md:flex-initial px-3 py-2 border border-gray-200 rounded-md text-xs focus:ring-2 focus:ring-[#23408e] focus:border-transparent transition bg-white"
+            value={periodFilter}
+            onChange={e => setPeriodFilter(e.target.value)}
           >
-            <option value="">Todos los ámbitos</option>
-            <option value="career">Carrera</option>
-            <option value="course">Curso</option>
+            <option value="">Todos los períodos</option>
+            {uniquePeriods.map(period => (
+              <option key={period} value={period}>{period}</option>
+            ))}
           </select>
+
+          {/* Botón Limpiar */}
+          {(careerFilter || scopeFilter || courseFilter || statusFilter !== 'all' || periodFilter || searchTerm) && (
+            <button
+              onClick={() => {
+                setSearchTerm('');
+                setCareerFilter('');
+                setScopeFilter('');
+                setCourseFilter('');
+                setStatusFilter('all');
+                setPeriodFilter('');
+              }}
+              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-md font-semibold text-xs transition"
+            >
+              Limpiar
+            </button>
+          )}
         </div>
+
+        {/* Barra de resultados - Solo cuando hay filtros */}
+        {(searchTerm || careerFilter || scopeFilter || courseFilter || statusFilter !== 'all' || periodFilter) && (
+          <div className="bg-[#23408e] text-white rounded-lg mt-3 px-4 py-2.5 text-sm flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl font-bold">{filteredStudents.length}</span>
+              <span className="opacity-90">
+                resultado{filteredStudents.length !== 1 ? 's' : ''} encontrado{filteredStudents.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+            <div className="hidden md:flex flex-wrap gap-2 text-xs justify-end">
+              {searchTerm && (
+                <span className="bg-white bg-opacity-15 rounded-full px-2.5 py-1">
+                  🔍 "{searchTerm}"
+                </span>
+              )}
+              {statusFilter !== 'all' && (
+                <span className="bg-white bg-opacity-15 rounded-full px-2.5 py-1">
+                  {statusFilter === 'active' ? '✓ Activos' : '⊘ Inactivos'}
+                </span>
+              )}
+              {scopeFilter && (
+                <span className="bg-white bg-opacity-15 rounded-full px-2.5 py-1">
+                  {scopeFilter === 'career' ? '🎓 Carrera' : '📚 Curso'}
+                </span>
+              )}
+              {careerFilter && scopeFilter !== 'course' && (
+                <span className="bg-white bg-opacity-15 rounded-full px-2.5 py-1 truncate max-w-[150px]">
+                  🏫 {careerFilter}
+                </span>
+              )}
+              {courseFilter && scopeFilter === 'course' && (
+                <span className="bg-white bg-opacity-15 rounded-full px-2.5 py-1 truncate max-w-[150px]">
+                  📖 {coursesList.find(c => c.id === courseFilter)?.nombre}
+                </span>
+              )}
+              {periodFilter && (
+                <span className="bg-white bg-opacity-15 rounded-full px-2.5 py-1">
+                  📅 {periodFilter}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Sin filtros - contador simple */}
+        {!(searchTerm || careerFilter || scopeFilter || courseFilter || statusFilter !== 'all' || periodFilter) && (
+          <div className="text-right text-gray-600 text-xs pt-2">
+            Total: <span className="font-bold text-[#23408e]">{students.length}</span> estudiantes
+          </div>
+        )}
       </div>
 
       <div className="space-y-4">
@@ -357,19 +480,20 @@ const StudentsTable = () => {
                     <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Carrera:</span> {student.career}</div>
                     <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Semestre:</span> {student.semester ? `Semestre ${student.semester}` : 'Sin asignar'}</div>
                     <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Cursos:</span> {student.courses.map(cid => coursesList.find(c => c.id === cid)?.nombre).filter(Boolean).join(', ') || '—'}</div>
-                    <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Período:</span> {student.coursePeriod || '—'}</div>
+                    <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Período Académico:</span> {student.period || '—'}</div>
                   </>
                 ) : student.career ? (
                   // Tipo: Solo Carrera
                   <>
                     <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Carrera:</span> {student.career}</div>
                     <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Semestre:</span> {student.semester ? `Semestre ${student.semester}` : 'Sin asignar'}</div>
+                    <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Período Académico:</span> {student.period || '—'}</div>
                   </>
                 ) : (Array.isArray(student.courses) && student.courses.length > 0) ? (
                   // Tipo: Solo Curso
                   <>
                     <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Curso:</span> {student.courses.map(cid => coursesList.find(c => c.id === cid)?.nombre).filter(Boolean).join(', ') || '—'}</div>
-                    <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Período:</span> {student.coursePeriod || '—'}</div>
+                    <div className="text-sm mt-1"><span className="font-bold text-[#23408e]">Período del Curso:</span> {student.coursePeriod || '—'}</div>
                   </>
                 ) : (
                   // Sin carrera ni cursos
