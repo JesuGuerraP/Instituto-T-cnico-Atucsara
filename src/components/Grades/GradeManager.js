@@ -213,6 +213,26 @@ const GradeManager = () => {
   const hasCareerModules = useMemo(() => teacherModules.some(m => m.source === 'career'), [teacherModules]);
   const hasCourseModules = useMemo(() => teacherModules.some(m => m.source === 'course'), [teacherModules]);
 
+  // Reset dependientes al cambiar ámbito o semestre para evitar estados inconsistentes
+  useEffect(() => {
+    // Cuando cambia el scope, limpiar filtros específicos
+    if (selectedScope === 'career') {
+      setCourseFilters({ student: '', group: '' });
+      setSelectedCourse('');
+      setSelectedCourseModule('');
+    } else if (selectedScope === 'course') {
+      setCareerFilters({ module: '', student: '', group: '' });
+      setSelectedSemester('');
+    }
+    setSearch('');
+  }, [selectedScope]);
+
+  useEffect(() => {
+    // Al cambiar semestre, limpiar filtros de carrera dependientes
+    setCareerFilters({ module: '', student: '', group: '' });
+    setSearch('');
+  }, [selectedSemester]);
+
   // Opciones para los selectores de CURSOS
   const courseOptions = useMemo(() => {
       const courses = teacherModules
@@ -267,6 +287,16 @@ const GradeManager = () => {
     if (selectedScope === 'career') {
         // Filtra estudiantes por semestre si está seleccionado
         filtered = students.filter(s => !selectedSemester || String(s.semester) === String(selectedSemester));
+        // Si hay un módulo seleccionado, filtrar además por pertenencia al módulo
+        if (careerFilters.module) {
+          const moduloSel = teacherModules.find(m => m.source === 'career' && m.nombre === careerFilters.module && (!selectedSemester || String(m.semestre || m.semester) === String(selectedSemester)));
+          if (moduloSel) {
+            filtered = filtered.filter(s => Array.isArray(s.modulosAsignados) && s.modulosAsignados.some(ms => ms.id === moduloSel.id));
+          } else {
+            // Si el módulo seleccionado no existe para el semestre, no mostrar estudiantes
+            filtered = [];
+          }
+        }
     } else if (selectedScope === 'course') {
         // Filtra estudiantes que pertenecen al curso seleccionado
         if (selectedCourse) {
@@ -279,7 +309,7 @@ const GradeManager = () => {
         filtered = students;
     }
     return filtered.sort((a, b) => `${a.name} ${a.lastName}`.localeCompare(`${b.name} ${b.lastName}`));
-  }, [students, selectedScope, selectedSemester, selectedCourse]);
+  }, [students, selectedScope, selectedSemester, selectedCourse, careerFilters.module, teacherModules]);
 
 
   const handleDelete = (id) => {
