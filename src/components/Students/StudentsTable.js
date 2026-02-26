@@ -24,13 +24,15 @@ const StudentsTable = () => {
   const [studentToDelete, setStudentToDelete] = useState(null);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignCareer, setAssignCareer] = useState('');
-  const [assignSemester, setAssignSemester] = useState(''); // Nuevo filtro de semestre
-  const [semestersList, setSemestersList] = useState([]); // Semestres disponibles según la carrera
+  const [assignSemester, setAssignSemester] = useState('');
+  const [semestersList, setSemestersList] = useState([]);
   const [assignStudents, setAssignStudents] = useState([]);
   const [assignModule, setAssignModule] = useState('');
+  const [isGeneralModule, setIsGeneralModule] = useState(false); // Nuevo: indica si es módulo general
   const [assignStatus, setAssignStatus] = useState('cursando');
   const [modulesByCareer, setModulesByCareer] = useState([]);
-  const [modulesByCareerSemester, setModulesByCareerSemester] = useState([]); // Módulos filtrados por semestre
+  const [generalModules, setGeneralModules] = useState([]); // Nuevo: módulos generales
+  const [modulesByCareerSemester, setModulesByCareerSemester] = useState([]);
   const [careersList, setCareersList] = useState([]);
   const [studentsByCareer, setStudentsByCareer] = useState([]);
   const [coursesList, setCoursesList] = useState([]);
@@ -75,7 +77,6 @@ const StudentsTable = () => {
         const querySnapshot = await getDocs(q);
         const studentsData = querySnapshot.docs.map(doc => {
           const data = doc.data();
-          // Calcular período si no existe (para estudiantes antiguos)
           const period = data.period || (data.createdAt ? calculatePeriod(data.createdAt) : '');
           return {
             id: doc.id,
@@ -100,19 +101,16 @@ const StudentsTable = () => {
     fetchTeachers();
   }, []);
 
-  // Actualizar períodos disponibles cuando cambian los estudiantes
   useEffect(() => {
     setUniquePeriods(getUniquePeriods(students));
   }, [students]);
 
   useEffect(() => {
-    // Obtener carreras y módulos para el modal y para mostrar nombres de módulos
     const fetchCareers = async () => {
       const careersSnap = await getDocs(collection(db, 'careers'));
       const careersArr = [];
       for (const docSnap of careersSnap.docs) {
         const data = docSnap.data();
-        // Obtener módulos de la subcolección
         const modulosSnap = await getDocs(collection(db, 'careers', docSnap.id, 'modules'));
         const modulosArr = modulosSnap.docs.map(m => ({ id: m.id, ...m.data() }));
         careersArr.push({ id: docSnap.id, ...data, modulos: modulosArr });
@@ -130,30 +128,29 @@ const StudentsTable = () => {
     fetchCourses();
   }, []);
 
-  // Cargar módulos de los cursos del estudiante seleccionado
+  // Nuevo: cargar módulos generales
   useEffect(() => {
-    const loadCourseModules = async () => {
-      if (!selectedStudent || !Array.isArray(selectedStudent.courses) || selectedStudent.courses.length === 0) {
-        setCourseModulesInfo([]);
-        return;
+    const fetchGeneralModules = async () => {
+      try {
+        const modulesSnap = await getDocs(collection(db, 'generalModules'));
+        const modulesData = modulesSnap.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            isGeneral: true,
+            nombre: data.nombre + ' (General)'
+          };
+        });
+        setGeneralModules(modulesData);
+      } catch (error) {
+        console.error('Error fetching general modules:', error);
       }
-      const result = [];
-      for (const courseId of selectedStudent.courses) {
-        const course = coursesList.find(c => c.id === courseId);
-        try {
-          const snap = await getDocs(collection(db, 'courses', courseId, 'modules'));
-          const modules = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-          result.push({ courseId, courseName: course?.nombre || 'Curso', modules });
-        } catch (e) {
-          result.push({ courseId, courseName: course?.nombre || 'Curso', modules: [] });
-        }
-      }
-      setCourseModulesInfo(result);
     };
-    loadCourseModules();
-  }, [selectedStudent, coursesList]);
+    fetchGeneralModules();
+  }, []);
 
-  // Cuando cambia la carrera seleccionada se actualizan módulos, semestres y se limpian criterios dependientes
+  // Cuando cambia la carrera: actualizar módulos específicos + generales disponibles, limpiar dependientes
   useEffect(() => {
     if (assignCareer) {
       const careerObj = careersList.find(c => c.nombre === assignCareer);
@@ -172,32 +169,69 @@ const StudentsTable = () => {
     // reset dependents
     setAssignSemester('');
     setAssignModule('');
+    setIsGeneralModule(false);
     setAssignStudents([]);
   }, [assignCareer, careersList]);
 
-  // Cuando cambia el semestre se filtran los módulos de esa carrera
+  // Cuando cambia el semestre: filtrar módulos (específicos + generales)
   useEffect(() => {
-    if (assignSemester && modulesByCareer.length > 0) {
-      setModulesByCareerSemester(modulesByCareer.filter(m => String(m.semestre) === String(assignSemester)));
+    if (assignSemester && (modulesByCareer.length > 0 || generalModules.length > 0)) {
+      // Módulos específicos de la carrera en ese semestre
+      const specificModules = modulesByCareer.filter(m => String(m.semestre) === String(assignSemester));
+      
+      // Módulos generales disponibles para esa carrera en ese semestre
+      const relevant = generalModules.filter(gm => 
+        gm.carreraSemestres.some(cs => cs.career === assignCareer && String(cs.semester) === String(assignSemester))
+      );
+      
+      // Combinar ambos, marcando los generales
+      const combined = [
+        ...specificModules.map(m => ({ ...m, isGeneral: false })),
+        ...relevant.map(m => ({ ...m, isGeneral: true }))
+      ];
+      
+      setModulesByCareerSemester(combined);
     } else {
       setModulesByCareerSemester([]);
     }
     setAssignModule('');
+    setIsGeneralModule(false);
     setAssignStudents([]);
-  }, [assignSemester, modulesByCareer]);
+  }, [assignSemester, modulesByCareer, generalModules, assignCareer]);
 
-  // Filtrar estudiantes por carrera y semestre (y opcionalmente evitar duplicados de módulo)
+  // Filtrar estudiantes según si es módulo general o específico
   useEffect(() => {
-    if (assignCareer && assignSemester) {
-      let filtered = students.filter(s => s.career === assignCareer && String(s.semester) === String(assignSemester));
-      if (assignModule) {
-        filtered = filtered.filter(s => !(Array.isArray(s.modulosAsignados) && s.modulosAsignados.some(m => m.id === assignModule)));
+    if (assignCareer && assignSemester && assignModule) {
+      let filtered = [];
+      
+      if (isGeneralModule) {
+        // Si es módulo general: mostrar estudiantes de TODAS las carreras que tienen ese módulo en ese semestre
+        const module = generalModules.find(m => m.id === assignModule);
+        if (module) {
+          const relevantCareers = module.carreraSemestres
+            .filter(cs => String(cs.semester) === String(assignSemester))
+            .map(cs => cs.career);
+          
+          filtered = students.filter(s => 
+            relevantCareers.includes(s.career) && 
+            String(s.semester) === String(assignSemester) &&
+            !(Array.isArray(s.modulosAsignados) && s.modulosAsignados.some(m => m.id === assignModule))
+          );
+        }
+      } else {
+        // Si es módulo específico: solo estudiantes de esa carrera
+        filtered = students.filter(s => 
+          s.career === assignCareer && 
+          String(s.semester) === String(assignSemester) &&
+          !(Array.isArray(s.modulosAsignados) && s.modulosAsignados.some(m => m.id === assignModule))
+        );
       }
+      
       setStudentsByCareer(filtered);
     } else {
       setStudentsByCareer([]);
     }
-  }, [assignCareer, assignSemester, assignModule, students]);
+  }, [assignCareer, assignSemester, assignModule, isGeneralModule, students, generalModules]);
 
   const handleDelete = async (id) => {
     setStudentToDelete(id);
@@ -242,8 +276,10 @@ const StudentsTable = () => {
     toast.success('Módulo asignado/actualizado correctamente');
     setShowAssignModal(false);
     setAssignCareer('');
+    setAssignSemester('');
     setAssignStudents([]);
     setAssignModule('');
+    setIsGeneralModule(false);
     setAssignStatus('cursando');
     // Refrescar estudiantes
     const q = query(collection(db, 'students'));
@@ -582,13 +618,19 @@ const StudentsTable = () => {
               )}
               <div className="mb-4">
                 <label className="block font-semibold mb-1 text-[#009245]">Módulo</label>
-                <select className="w-full border rounded px-3 py-2 mb-2" value={assignModule} onChange={e => setAssignModule(e.target.value)}>
+                <select className="w-full border rounded px-3 py-2 mb-2" value={assignModule} onChange={(e) => {
+                  setAssignModule(e.target.value);
+                  const selectedMod = modulesByCareerSemester.find(m => m.id === e.target.value);
+                  setIsGeneralModule(selectedMod?.isGeneral || false);
+                }} >
                   <option value="">Selecciona un módulo</option>
                   {modulesByCareerSemester.length === 0 && assignSemester && (
                     <option value="" disabled>No hay módulos en este semestre</option>
                   )}
                   {modulesByCareerSemester.map(m => (
-                    <option key={m.id} value={m.id}>{m.nombre}</option>
+                    <option key={m.id} value={m.id}>
+                      {m.nombre} {m.isGeneral ? '(General)' : ''}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -700,7 +742,9 @@ const StudentsTable = () => {
                 {showModulosDetalle && (
                   <ul className="space-y-2 mb-4">
                     {(selectedStudent.modulosAsignados || []).map((mod) => {
-                      const moduloObj = (careersList.find(c => c.nombre === selectedStudent.career)?.modulos || []).find(m => m.id === mod.id);
+                      const moduloObj =
+                        (careersList.find(c => c.nombre === selectedStudent.career)?.modulos || []).find(m => m.id === mod.id)
+                        || generalModules.find(g => g.id === mod.id);
                       let estadoColor = '';
                       switch (mod.estado) {
                         case 'aprobado':
@@ -738,13 +782,38 @@ const StudentsTable = () => {
                               </button>
                             </div>
                           </div>
-                          {moduloObj && (
-                            <div className="text-xs text-gray-600 mt-1">
-                              <span className="font-semibold">Profesor:</span> {moduloObj.profesor || 'Sin asignar'}<br/>
-                              <span className="font-semibold">Semestre:</span> {moduloObj.semestre}<br/>
-                              <span className="font-semibold">Descripción:</span> {moduloObj.descripcion}
-                            </div>
-                          )}
+                          {moduloObj && (() => {
+                            // Resolver profesor: puede ser array de nombres, un nombre string o un ID (en módulos generales)
+                            let teacherDisplay = 'Sin asignar';
+                            const prof = moduloObj.profesor;
+                            if (Array.isArray(prof)) {
+                              teacherDisplay = prof.filter(Boolean).join(', ') || 'Sin asignar';
+                            } else if (typeof prof === 'string' && prof) {
+                              const t = teachers.find(tt => tt.id === prof);
+                              teacherDisplay = t ? `${t.name} ${t.lastName}` : prof;
+                            }
+
+                            // Resolver semestre: específico (semestre) o general (carreraSemestres/semestres)
+                            let semesterDisplay = moduloObj.semestre;
+                            if (!semesterDisplay) {
+                              if (Array.isArray(moduloObj.carreraSemestres)) {
+                                const cs = moduloObj.carreraSemestres.find(cs => cs.career === selectedStudent.career);
+                                semesterDisplay = cs?.semester || (Array.isArray(moduloObj.semestres) ? moduloObj.semestres.join(', ') : '—');
+                              } else if (Array.isArray(moduloObj.semestres)) {
+                                semesterDisplay = moduloObj.semestres.join(', ');
+                              } else {
+                                semesterDisplay = '—';
+                              }
+                            }
+
+                            return (
+                              <div className="text-xs text-gray-600 mt-1">
+                                <span className="font-semibold">Profesor:</span> {teacherDisplay}<br/>
+                                <span className="font-semibold">Semestre:</span> {semesterDisplay}<br/>
+                                <span className="font-semibold">Descripción:</span> {moduloObj.descripcion}
+                              </div>
+                            );
+                          })()}
                         </li>
                       );
                     })}

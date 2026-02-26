@@ -240,6 +240,36 @@ const AttendanceManager = () => {
             }
           });
         }
+        // Incluir módulos generales asignados al docente (por carrera/semestre)
+        try {
+          const gmSnap = await getDocs(collection(db, 'generalModules'));
+          const teacherId = teacher.id;
+          gmSnap.forEach(gDoc => {
+            const gm = gDoc.data();
+            // Coincidencia por ID de profesor (formato actual) o por nombre (compatibilidad antigua)
+            const gmProf = gm.profesor;
+            const matchById = gmProf && teacherId && gmProf === teacherId;
+            const matchByName = typeof gmProf === 'string' && gmProf.trim() === ((teacher.name + ' ' + (teacher.lastName || '')).trim());
+            if (!(matchById || matchByName)) return;
+            (gm.carreraSemestres || []).forEach(cs => {
+              const sem = String(cs.semester);
+              if (!selectedSemester || sem === selectedSemester) {
+                teacherCareers.add(cs.career);
+                teacherModules.push({
+                  id: gDoc.id,
+                  nombre: (gm.nombre || '') + ' (General)',
+                  careerId: null,
+                  careerName: cs.career,
+                  semester: sem,
+                  isGeneral: true
+                });
+              }
+            });
+          });
+        } catch (e) {
+          console.warn('No se pudieron cargar módulos generales del docente:', e);
+        }
+
         // Solo mostrar la(s) carrera(s) del docente
         const careersArr = Array.from(teacherCareers);
         setCareers(careersArr);
@@ -760,6 +790,35 @@ const AttendanceManager = () => {
         }
       }
       
+      // Incluir módulos generales para la carrera y semestre seleccionados
+      try {
+        if (selectedCareer && selectedSemester) {
+          const gmSnap = await getDocs(collection(db, 'generalModules'));
+          let teacherId = null;
+          if (currentUser.role === 'teacher') {
+            const tSnap = await getDocs(query(collection(db, 'teachers'), where('email', '==', currentUser.email)));
+            if (!tSnap.empty) teacherId = tSnap.docs[0].id;
+          }
+          gmSnap.forEach(gDoc => {
+            const gm = gDoc.data();
+            const applies = (gm.carreraSemestres || []).some(cs => cs.career === selectedCareer && String(cs.semester) === String(selectedSemester));
+            if (!applies) return;
+            if (currentUser.role === 'teacher') {
+              if (!(gm.profesor && teacherId && gm.profesor === teacherId)) return;
+            }
+            allModules.push({
+              id: gDoc.id,
+              nombre: (gm.nombre || '') + ' (General)',
+              semestre: String(selectedSemester),
+              carrera: selectedCareer,
+              isGeneral: true
+            });
+          });
+        }
+      } catch (e) {
+        console.warn('No se pudieron cargar módulos generales para el modal:', e);
+      }
+
       setModulesForCareer(allModules);
       
       // Si hay un módulo seleccionado que no está en el semestre actual o no es del profesor, limpiarlo

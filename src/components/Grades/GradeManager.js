@@ -120,6 +120,30 @@ const GradeManager = () => {
           });
         });
       }
+      // Incluir módulos generales (como ámbito carrera) agrupados por semestre
+      try {
+        const generalSnap = await getDocs(collection(db, 'generalModules'));
+        generalSnap.forEach(gDoc => {
+          const gm = gDoc.data();
+          const semesters = Array.from(new Set((gm.carreraSemestres || []).map(cs => String(cs.semester))))
+            || (Array.isArray(gm.semestres) ? gm.semestres.map(s => String(s)) : []);
+          const careerList = Array.from(new Set((gm.carreraSemestres || []).map(cs => cs.career)));
+          semesters.forEach(sem => {
+            allModules.push({
+              id: gDoc.id,
+              nombre: (gm.nombre || '') + ' (General)',
+              profesor: gm.profesor,
+              descripcion: gm.descripcion || '',
+              semestre: sem,
+              source: 'career',
+              isGeneral: true,
+              careerList
+            });
+          });
+        });
+      } catch (e) {
+        console.warn('No se pudieron cargar módulos generales:', e);
+      }
 
       if (currentUser.role === 'teacher') {
         const teacher = allTeachers.find(t => t.email?.toLowerCase() === currentUser.email.toLowerCase());
@@ -137,7 +161,8 @@ const GradeManager = () => {
                 if (Array.isArray(moduleProfesor)) {
                     isMatch = moduleProfesor.map(p => (p || '').trim()).includes(teacherFullName);
                 } else if (typeof moduleProfesor === 'string') {
-                    isMatch = (moduleProfesor || '').trim() === teacherFullName;
+                    // Permitir coincidencia por nombre completo o por ID (módulos generales guardan ID)
+                    isMatch = (moduleProfesor || '').trim() === teacherFullName || moduleProfesor === teacher.id;
                 }
                 
                 if (!isMatch && m.profesorEmail && teacher.email) {

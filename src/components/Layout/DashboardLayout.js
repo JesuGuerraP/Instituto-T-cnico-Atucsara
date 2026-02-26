@@ -102,6 +102,12 @@ const DashboardLayout = () => {
                       </Link>
                     </li>
                     <li>
+                      <Link to="/dashboard/general-modules" className="flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition group" onClick={() => setSidebarOpen(false)}>
+                        <span className={`mr-3 ${iconColor}`}><DegreeHat theme="outline" size="22" /></span>
+                        Módulos Generales
+                      </Link>
+                    </li>
+                    <li>
                       <Link to="/dashboard/teachers" className="flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition group" onClick={() => setSidebarOpen(false)}>
                         <span className={`mr-3 ${iconColor}`}><User theme="outline" size="22" /></span>
                         Profesores

@@ -104,7 +104,69 @@ const TeacherDashboard = () => {
             }
           });
         }
-        setModulosAsignados(modulos);
+
+        // Incluir módulos generales asignados a este profesor (agregado por semestre, no por carrera)
+        try {
+          const generalSnap = await getDocs(collection(db, 'generalModules'));
+          const generalBySem = new Map(); // key: `${id}::${semester}`
+          generalSnap.forEach(gDoc => {
+            const gm = gDoc.data();
+            const gmProfesor = gm.profesor; // normalmente es ID del profesor
+            const matchById = gmProfesor && teacher?.id && gmProfesor === teacher.id;
+            const matchByName = typeof gmProfesor === 'string' && gmProfesor.trim() === teacherFullName; // compatibilidad por nombre
+            if (matchById || matchByName) {
+              (gm.carreraSemestres || []).forEach(cs => {
+                const key = `${gDoc.id}::${String(cs.semester)}`;
+                if (!generalBySem.has(key)) {
+                  generalBySem.set(key, {
+                    id: gDoc.id,
+                    nombre: gm.nombre + ' (General)',
+                    descripcion: gm.descripcion || '',
+                    profesor: gmProfesor,
+                    semestre: cs.semester,
+                    carrera: '', // se setea luego
+                    careerId: null,
+                    isGeneral: true,
+                    sabadosSemana: gm.sabadosSemana || 0,
+                    careerList: new Set()
+                  });
+                }
+                const entry = generalBySem.get(key);
+                entry.careerList.add(cs.career);
+              });
+            }
+          });
+          // Convertir y añadir al arreglo de módulos
+          Array.from(generalBySem.values()).forEach(entry => {
+            const careersArr = Array.from(entry.careerList);
+            careersArr.forEach(c => carreras.add(c));
+            entry.careerList = careersArr; // persistir como array para usar en filtros
+            entry.carrera = careersArr.length === 1 ? careersArr[0] : `${careersArr.length} carreras`;
+            modulos.push(entry);
+          });
+        } catch (e) {
+          console.warn('No se pudieron cargar módulos generales para el docente:', e);
+        }
+
+        // Dedupe por id+semestre y fusionar careerList en módulos generales
+        const modMap = new Map();
+        modulos.forEach(m => {
+          const key = `${m.id}::${String(m.semestre || '')}::${m.isGeneral ? 'g' : 's'}`;
+          if (!modMap.has(key)) {
+            modMap.set(key, { ...m, careerList: Array.isArray(m.careerList) ? [...m.careerList] : m.careerList });
+          } else {
+            const existing = modMap.get(key);
+            if (m.isGeneral) {
+              const curr = new Set(Array.isArray(existing.careerList) ? existing.careerList : []);
+              const incoming = new Set(Array.isArray(m.careerList) ? m.careerList : []);
+              const merged = Array.from(new Set([...curr, ...incoming]));
+              existing.careerList = merged;
+              existing.carrera = merged.length === 1 ? merged[0] : `${merged.length} carreras`;
+              modMap.set(key, existing);
+            }
+          }
+        });
+        setModulosAsignados(Array.from(modMap.values()));
 
         // Obtener estudiantes para estos módulos
         const studentsSnap = await getDocs(collection(db, 'students'));
@@ -274,7 +336,15 @@ const TeacherDashboard = () => {
     const semestreModulo = modulo.semestre || 'Sin Semestre';
 
     const estudiantesDelModulo = estudiantes.filter(est =>
-      est.modulosAsignados?.some(m => m.id === modulo.id)
+      est.modulosAsignados?.some(m => m.id === modulo.id) &&
+      (
+        !modulo.isGeneral
+          ? true
+          : (
+              String(est.semester) === String(modulo.semestre) &&
+              (Array.isArray(modulo.careerList) ? modulo.careerList.includes(est.career) : est.career === modulo.carrera)
+            )
+      )
     );
 
     const estudiantesCursando = estudiantesDelModulo.filter(est => {
@@ -298,7 +368,8 @@ const TeacherDashboard = () => {
         estadoModulo: 'cursando',
         estudiantes: estudiantesCursando,
       };
-      acc[semestreModulo].cursando.push(instancia);
+      const exists = acc[semestreModulo].cursando.some(x => x.id === instancia.id && (x.isGeneral ? 'g' : 's') === (instancia.isGeneral ? 'g' : 's'));
+      if (!exists) acc[semestreModulo].cursando.push(instancia);
     }
 
     if (estudiantesAprobados.length > 0) {
@@ -308,7 +379,8 @@ const TeacherDashboard = () => {
         estadoModulo: 'aprobado',
         estudiantes: estudiantesAprobados,
       };
-      acc[semestreModulo].aprobado.push(instancia);
+      const exists = acc[semestreModulo].aprobado.some(x => x.id === instancia.id && (x.isGeneral ? 'g' : 's') === (instancia.isGeneral ? 'g' : 's'));
+      if (!exists) acc[semestreModulo].aprobado.push(instancia);
     }
     
     // Si no hay estudiantes, no se muestra el módulo. Se podría añadir lógica para 'pendiente' si es necesario.
@@ -320,12 +392,16 @@ const TeacherDashboard = () => {
     .flatMap(semestre => semestre.cursando);
 
   const modulosEnCursoPorSemestre = modulosEnCurso.reduce((acc, modulo) => {
-      const semestre = modulo.semestre || 'Otro';
-      if (!acc[semestre]) {
-          acc[semestre] = [];
-      }
-      acc[semestre].push(modulo);
-      return acc;
+    const semestre = modulo.semestre || 'Otro';
+    const key = `${modulo.id}::${String(modulo.semestre || '')}::${modulo.isGeneral ? 'g' : 's'}`;
+    if (!acc[semestre]) {
+      acc[semestre] = { list: [], seen: new Set() };
+    }
+    if (!acc[semestre].seen.has(key)) {
+      acc[semestre].seen.add(key);
+      acc[semestre].list.push(modulo);
+    }
+    return acc;
   }, {});
 
   const estudiantesPorSemestre = estudiantes.reduce((acc, estudiante) => {
@@ -407,12 +483,12 @@ const TeacherDashboard = () => {
 
                 return Object.entries(modulosEnCursoPorSemestre)
                   .sort(([semA], [semB]) => semA - semB)
-                  .map(([semestre, modulos]) => (
+                  .map(([semestre, entry]) => (
                     <div key={semestre}>
                       <p className="text-xs font-bold text-gray-500 mb-1">SEMESTRE {semestre}</p>
                       <div className="space-y-2">
-                        {modulos.map(modulo => (
-                          <div key={modulo.id} className="p-2 bg-orange-50 rounded-md">
+                        {entry.list.map(modulo => (
+                          <div key={`${modulo.id}-${modulo.semestre}-${modulo.carrera || 'gen'}`} className="p-2 bg-orange-50 rounded-md">
                             <p className="font-semibold text-sm text-orange-800">{modulo.nombre}</p>
                           </div>
                         ))}

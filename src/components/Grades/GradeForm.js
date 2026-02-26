@@ -83,6 +83,18 @@ const GradeForm = ({
     const selectedModule = availableModules.find(m => m.id === form.moduleId);
     if (!selectedModule) return [];
 
+    // Módulo general tratado como carrera: filtrar por carreras válidas, semestre y que tenga el módulo asignado
+    if (scope === 'career' && selectedModule.isGeneral) {
+      return students.filter(s => {
+        const validCareer = Array.isArray(selectedModule.careerList)
+          ? selectedModule.careerList.includes(s.career)
+          : (selectedModule.carrera ? s.career === selectedModule.carrera : true);
+        const validSemester = String(s.semester) === String(selectedModule.semestre) || String(s.semestre) === String(selectedModule.semestre);
+        const hasModule = Array.isArray(s.modulosAsignados) && s.modulosAsignados.some(m => m.id === selectedModule.id);
+        return validCareer && validSemester && hasModule;
+      });
+    }
+
     // ESTRATEGIA 1: Si el módulo tiene propiedades de carrera/curso, filtrar estudiantes por eso
     if (scope === 'career' && selectedModule.careerId) {
       // Filtrar estudiantes que pertenecen a la misma carrera Y al mismo semestre
