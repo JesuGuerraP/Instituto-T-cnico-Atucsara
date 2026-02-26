@@ -24,10 +24,13 @@ const StudentsTable = () => {
   const [studentToDelete, setStudentToDelete] = useState(null);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignCareer, setAssignCareer] = useState('');
+  const [assignSemester, setAssignSemester] = useState(''); // Nuevo filtro de semestre
+  const [semestersList, setSemestersList] = useState([]); // Semestres disponibles según la carrera
   const [assignStudents, setAssignStudents] = useState([]);
   const [assignModule, setAssignModule] = useState('');
   const [assignStatus, setAssignStatus] = useState('cursando');
   const [modulesByCareer, setModulesByCareer] = useState([]);
+  const [modulesByCareerSemester, setModulesByCareerSemester] = useState([]); // Módulos filtrados por semestre
   const [careersList, setCareersList] = useState([]);
   const [studentsByCareer, setStudentsByCareer] = useState([]);
   const [coursesList, setCoursesList] = useState([]);
@@ -150,23 +153,51 @@ const StudentsTable = () => {
     loadCourseModules();
   }, [selectedStudent, coursesList]);
 
+  // Cuando cambia la carrera seleccionada se actualizan módulos, semestres y se limpian criterios dependientes
   useEffect(() => {
-    // Filtrar estudiantes por carrera seleccionada
     if (assignCareer) {
-      setStudentsByCareer(students.filter(s => s.career === assignCareer));
       const careerObj = careersList.find(c => c.nombre === assignCareer);
       if (careerObj) {
-        getDocs(collection(db, 'careers', careerObj.id, 'modules')).then(snap => {
-          setModulesByCareer(snap.docs.map(m => ({ id: m.id, ...m.data() })));
-        });
+        setModulesByCareer(careerObj.modulos || []);
+        const sems = Array.from(new Set((careerObj.modulos || []).map(m => m.semestre)));
+        setSemestersList(sems);
       } else {
         setModulesByCareer([]);
+        setSemestersList([]);
       }
     } else {
-      setStudentsByCareer([]);
       setModulesByCareer([]);
+      setSemestersList([]);
     }
-  }, [assignCareer, students, careersList]);
+    // reset dependents
+    setAssignSemester('');
+    setAssignModule('');
+    setAssignStudents([]);
+  }, [assignCareer, careersList]);
+
+  // Cuando cambia el semestre se filtran los módulos de esa carrera
+  useEffect(() => {
+    if (assignSemester && modulesByCareer.length > 0) {
+      setModulesByCareerSemester(modulesByCareer.filter(m => String(m.semestre) === String(assignSemester)));
+    } else {
+      setModulesByCareerSemester([]);
+    }
+    setAssignModule('');
+    setAssignStudents([]);
+  }, [assignSemester, modulesByCareer]);
+
+  // Filtrar estudiantes por carrera y semestre (y opcionalmente evitar duplicados de módulo)
+  useEffect(() => {
+    if (assignCareer && assignSemester) {
+      let filtered = students.filter(s => s.career === assignCareer && String(s.semester) === String(assignSemester));
+      if (assignModule) {
+        filtered = filtered.filter(s => !(Array.isArray(s.modulosAsignados) && s.modulosAsignados.some(m => m.id === assignModule)));
+      }
+      setStudentsByCareer(filtered);
+    } else {
+      setStudentsByCareer([]);
+    }
+  }, [assignCareer, assignSemester, assignModule, students]);
 
   const handleDelete = async (id) => {
     setStudentToDelete(id);
@@ -523,45 +554,96 @@ const StudentsTable = () => {
       {/* Modal para asignar módulo */}
       {showAssignModal && (
         <Dialog open={showAssignModal} onClose={() => setShowAssignModal(false)} className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-          <div className="bg-white rounded-lg shadow-lg p-8 max-w-lg w-full relative border-t-4 border-[#ffd600]">
-            <Dialog.Title className="text-xl font-bold mb-4 text-[#23408e]">Asignar módulo a estudiantes</Dialog.Title>
-            <div className="mb-4">
-              <label className="block font-semibold mb-1 text-[#009245]">Carrera</label>
-              <select className="w-full border rounded px-3 py-2 mb-2" value={assignCareer} onChange={e => setAssignCareer(e.target.value)}>
-                <option value="">Selecciona una carrera</option>
-                {careersList.map(c => (
-                  <option key={c.id} value={c.nombre}>{c.nombre}</option>
-                ))}
-              </select>
+          <div className="bg-white rounded-lg shadow-lg p-0 max-w-lg w-full relative border-t-4 border-[#ffd600] max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white z-10 p-8 border-b">
+              <Dialog.Title className="text-xl font-bold text-[#23408e]">Asignar módulo a estudiantes</Dialog.Title>
             </div>
-            <div className="mb-4">
-              <label className="block font-semibold mb-1 text-[#009245]">Estudiantes</label>
-              <select multiple className="w-full border rounded px-3 py-2 mb-2 h-32" value={assignStudents} onChange={e => setAssignStudents(Array.from(e.target.selectedOptions, o => o.value))}>
-                {studentsByCareer.map(s => (
-                  <option key={s.id} value={s.id}>{s.name} {s.lastName}</option>
-                ))}
-              </select>
-            </div>
-            <div className="mb-4">
-              <label className="block font-semibold mb-1 text-[#009245]">Módulo</label>
-              <select className="w-full border rounded px-3 py-2 mb-2" value={assignModule} onChange={e => setAssignModule(e.target.value)}>
-                <option value="">Selecciona un módulo</option>
-                {modulesByCareer.map(m => (
-                  <option key={m.id} value={m.id}>{m.nombre}</option>
-                ))}
-              </select>
-            </div>
-            <div className="mb-4">
-              <label className="block font-semibold mb-1 text-[#009245]">Estado</label>
-              <select className="w-full border rounded px-3 py-2 mb-2" value={assignStatus} onChange={e => setAssignStatus(e.target.value)}>
-                <option value="cursando">Cursando</option>
-                <option value="aprobado">Aprobado</option>
-                <option value="pendiente">Pendiente</option>
-              </select>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button className="px-4 py-2 bg-gray-100 rounded-md" onClick={() => setShowAssignModal(false)}>Cancelar</button>
-              <button className="px-4 py-2 bg-[#ffd600] text-[#23408e] rounded-md font-semibold" onClick={handleAssignModule} disabled={!assignModule || assignStudents.length === 0}>Asignar</button>
+            <div className="p-8 space-y-6">
+              <div>
+                <label className="block font-semibold mb-1 text-[#009245]">Carrera</label>
+                <select className="w-full border rounded px-3 py-2 mb-2 focus:ring-[#23408e]" value={assignCareer} onChange={e => setAssignCareer(e.target.value)}>
+                  <option value="">Selecciona una carrera</option>
+                  {careersList.map(c => (
+                    <option key={c.id} value={c.nombre}>{c.nombre}</option>
+                  ))}
+                </select>
+              </div>
+              {/* nuevo campo semestre */}
+              {assignCareer && (
+                <div className="mb-4">
+                  <label className="block font-semibold mb-1 text-[#009245]">Semestre</label>
+                  <select className="w-full border rounded px-3 py-2 mb-2" value={assignSemester} onChange={e => setAssignSemester(e.target.value)}>
+                    <option value="">Selecciona un semestre</option>
+                    {semestersList.map(s => (
+                      <option key={s} value={s}>{`Semestre ${s}`}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="mb-4">
+                <label className="block font-semibold mb-1 text-[#009245]">Módulo</label>
+                <select className="w-full border rounded px-3 py-2 mb-2" value={assignModule} onChange={e => setAssignModule(e.target.value)}>
+                  <option value="">Selecciona un módulo</option>
+                  {modulesByCareerSemester.length === 0 && assignSemester && (
+                    <option value="" disabled>No hay módulos en este semestre</option>
+                  )}
+                  {modulesByCareerSemester.map(m => (
+                    <option key={m.id} value={m.id}>{m.nombre}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="mb-4">
+                <label className="block font-semibold mb-1 text-[#009245]">Estudiantes</label>
+                {/* lista de estudiantes disponibles para seleccionar */}
+                <ul className="max-h-40 overflow-y-auto border rounded mb-2">
+                  {studentsByCareer.filter(s => !assignStudents.includes(s.id)).map(s => (
+                    <li
+                      key={s.id}
+                      className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm"
+                      onClick={() => setAssignStudents(prev => [...prev, s.id])}
+                    >
+                      {s.name} {s.lastName}
+                    </li>
+                  ))}
+                  {studentsByCareer.filter(s => !assignStudents.includes(s.id)).length === 0 && (
+                    <li className="px-3 py-2 text-gray-500 text-xs">{assignModule ? 'No hay estudiantes disponibles' : 'Selecciona un módulo'}</li>
+                  )}
+                </ul>
+                {/* lista de estudiantes ya seleccionados */}
+                {assignStudents.length > 0 && (
+                  <div className="mt-2">
+                    <span className="text-xs font-semibold">Seleccionados:</span>
+                    <ul className="mt-1 space-y-1">
+                      {assignStudents.map(id => {
+                        const s = studentsByCareer.find(st => st.id === id) || students.find(st => st.id === id);
+                        return (
+                          <li key={id} className="flex items-center justify-between px-3 py-1 bg-gray-100 rounded text-sm">
+                            <span>{s ? `${s.name} ${s.lastName}` : id}</span>
+                            <button
+                              className="text-red-500 hover:text-red-700 text-xs"
+                              onClick={() => setAssignStudents(prev => prev.filter(x => x !== id))}
+                            >
+                              &times;
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+              </div>
+              <div className="mb-4">
+                <label className="block font-semibold mb-1 text-[#009245]">Estado</label>
+                <select className="w-full border rounded px-3 py-2 mb-2" value={assignStatus} onChange={e => setAssignStatus(e.target.value)}>
+                  <option value="cursando">Cursando</option>
+                  <option value="aprobado">Aprobado</option>
+                  <option value="pendiente">Pendiente</option>
+                </select>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button className="px-4 py-2 bg-gray-100 rounded-md" onClick={() => setShowAssignModal(false)}>Cancelar</button>
+                <button className="px-4 py-2 bg-[#ffd600] text-[#23408e] rounded-md font-semibold" onClick={handleAssignModule} disabled={!assignCareer || !assignSemester || !assignModule || assignStudents.length === 0}>Asignar</button>
+              </div>
             </div>
           </div>
         </Dialog>
