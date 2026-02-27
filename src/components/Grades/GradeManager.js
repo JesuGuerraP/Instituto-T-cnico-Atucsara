@@ -233,6 +233,15 @@ const GradeManager = () => {
     setSearch('');
   }, [selectedSemester]);
 
+  useEffect(() => {
+    // Al cambiar período, limpiar filtros y búsquedas para evitar estados inconsistentes
+    setCareerFilters({ module: '', student: '', group: '' });
+    setCourseFilters({ student: '', group: '' });
+    setSelectedCourse('');
+    setSelectedCourseModule('');
+    setSearch('');
+  }, [selectedPeriod]);
+
   // Opciones para los selectores de CURSOS
   const courseOptions = useMemo(() => {
       const courses = teacherModules
@@ -404,7 +413,7 @@ const GradeManager = () => {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
                     <div>
-                        <label className="text-sm font-medium text-gray-700">Módulo de Carrera</label>
+                        <label className="text-sm font-medium text-gray-700">Módulo</label>
                         <select
                             className="w-full mt-1 p-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-[#23408e]"
                             value={careerFilters.module}
