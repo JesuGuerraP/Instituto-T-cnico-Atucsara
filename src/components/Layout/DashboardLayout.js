@@ -10,6 +10,7 @@ import './DashboardLayout.css';
 const DashboardLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [careersExpanded, setCareersExpanded] = useState(false);
   const navigate = useNavigate();
   const { currentUser } = useContext(AuthContext); // Usar currentUser
 
@@ -90,22 +91,35 @@ const DashboardLayout = () => {
                       </Link>
                     </li>
                     <li>
-                      <Link to="/dashboard/careers" className="flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition group" onClick={() => setSidebarOpen(false)}>
+                      <button onClick={() => setCareersExpanded(!careersExpanded)} className="w-full flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition group">
                         <span className={`mr-3 ${iconColor}`}><DegreeHat theme="outline" size="22" /></span>
                         Carreras
-                      </Link>
-                    </li>
-                    <li>
-                      <Link to="/dashboard/courses" className="flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition group" onClick={() => setSidebarOpen(false)}>
-                        <span className={`mr-3 ${iconColor}`}><Book theme="outline" size="22" /></span>
-                        Cursos
-                      </Link>
-                    </li>
-                    <li>
-                      <Link to="/dashboard/general-modules" className="flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition group" onClick={() => setSidebarOpen(false)}>
-                        <span className={`mr-3 ${iconColor}`}><DegreeHat theme="outline" size="22" /></span>
-                        Módulos Generales
-                      </Link>
+                        <svg className={`ml-auto w-4 h-4 transition-transform ${careersExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                        </svg>
+                      </button>
+                      {careersExpanded && (
+                        <ul className="bg-blue-50">
+                          <li>
+                            <Link to="/dashboard/careers" className="flex items-center px-12 py-3 text-gray-700 hover:bg-blue-100 hover:text-blue-900 transition text-sm" onClick={() => setSidebarOpen(false)}>
+                              <span className="w-1 h-1 rounded-full bg-blue-600 mr-3"></span>
+                              Gestionar Carreras
+                            </Link>
+                          </li>
+                          <li>
+                            <Link to="/dashboard/general-modules" className="flex items-center px-12 py-3 text-gray-700 hover:bg-blue-100 hover:text-blue-900 transition text-sm" onClick={() => setSidebarOpen(false)}>
+                              <span className="w-1 h-1 rounded-full bg-blue-600 mr-3"></span>
+                              Módulos Generales
+                            </Link>
+                          </li>
+                          <li>
+                            <Link to="/dashboard/courses" className="flex items-center px-12 py-3 text-gray-700 hover:bg-blue-100 hover:text-blue-900 transition text-sm" onClick={() => setSidebarOpen(false)}>
+                              <span className="w-1 h-1 rounded-full bg-blue-600 mr-3"></span>
+                              Cursos
+                            </Link>
+                          </li>
+                        </ul>
+                      )}
                     </li>
                     <li>
                       <Link to="/dashboard/teachers" className="flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition group" onClick={() => setSidebarOpen(false)}>
