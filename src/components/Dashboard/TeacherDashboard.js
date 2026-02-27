@@ -347,9 +347,14 @@ const TeacherDashboard = () => {
       )
     );
 
+    const estudiantesPendientes = estudiantesDelModulo.filter(est => {
+      const modEst = est.modulosAsignados.find(m => m.id === modulo.id);
+      return modEst?.estado === 'pendiente';
+    });
+
     const estudiantesCursando = estudiantesDelModulo.filter(est => {
       const modEst = est.modulosAsignados.find(m => m.id === modulo.id);
-      return modEst?.estado === 'cursando' || modEst?.estado === 'pendiente';
+      return modEst?.estado === 'cursando';
     });
 
     const estudiantesAprobados = estudiantesDelModulo.filter(est => {
@@ -359,6 +364,17 @@ const TeacherDashboard = () => {
 
     if (!acc[semestreModulo]) {
       acc[semestreModulo] = { cursando: [], pendiente: [], aprobado: [] };
+    }
+
+    if (estudiantesPendientes.length > 0 && estudiantesCursando.length === 0 && estudiantesAprobados.length === 0) {
+      const instancia = {
+        ...modulo,
+        idUnico: `${modulo.id}-pendiente`,
+        estadoModulo: 'pendiente',
+        estudiantes: estudiantesPendientes,
+      };
+      const exists = acc[semestreModulo].pendiente.some(x => x.id === instancia.id && (x.isGeneral ? 'g' : 's') === (instancia.isGeneral ? 'g' : 's'));
+      if (!exists) acc[semestreModulo].pendiente.push(instancia);
     }
 
     if (estudiantesCursando.length > 0) {

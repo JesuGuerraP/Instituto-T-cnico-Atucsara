@@ -19,11 +19,32 @@ const StudentDashboard = () => {
 
     // Estado para los módulos de la carrera
   const [careerModules, setCareerModules] = useState([]);
+  // módulos generales (misma colección que se usa en StudentsTable y otros componentes)
+  const [generalModules, setGeneralModules] = useState([]);
   // Estado para los seminarios de la carrera
   const [careerSeminarios, setCareerSeminarios] = useState([]);
   const [semesterPrices, setSemesterPrices] = useState({});
   // Estado para mostrar todas las notas o solo las recientes
   const [verTodasLasNotas, setVerTodasLasNotas] = useState(false);
+
+  // helpers para buscar módulos en específicas o generales y determinar semestre
+  const findModule = (id) => {
+    return careerModules.find(m => m.id === id) || generalModules.find(m => m.id === id);
+  };
+  const findModuleByName = (name) => {
+    return careerModules.find(m => m.nombre === name) || generalModules.find(m => m.nombre === name);
+  };
+  const getModuleSemester = (module) => {
+    if (!module) return 'General';
+    if (module.semestre || module.semester) return module.semestre || module.semester;
+    if (Array.isArray(module.semestres) && module.semestres.length > 0) return module.semestres[0];
+    if (Array.isArray(module.carreraSemestres) && studentInfo?.career) {
+      const entry = module.carreraSemestres.find(cs => cs.career === studentInfo.career);
+      if (entry) return entry.semester;
+    }
+    return 'General';
+  };
+
   // --- ESTADO Y FUNCIONES PARA IMPRESIÓN DE RECIBO ---
   const [showFinanceReceiptModal, setShowFinanceReceiptModal] = useState(false);
   const [selectedFinanceReceipt, setSelectedFinanceReceipt] = useState(null);
@@ -119,6 +140,24 @@ const StudentDashboard = () => {
         setCareerModules([]);
         setCareerSeminarios([]);
       }
+      // Cargar también módulos generales (se mostrarán junto a los específicos)
+      try {
+        const gmSnap = await getDocs(collection(db, 'generalModules'));
+        const gmArr = gmSnap.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            isGeneral: true,
+            // opcional: añadir sufijo para distinguir en el dashboard
+            nombre: data.nombre + (data.nombre?.includes('(General)') ? '' : ' (General)')
+          };
+        });
+        setGeneralModules(gmArr);
+      } catch (err) {
+        console.error('Error fetching general modules: ', err);
+        setGeneralModules([]);
+      }
 
       // Cargar precios de los semestres
       try {
@@ -201,7 +240,7 @@ const StudentDashboard = () => {
       let mejorModulo = null;
       let mejorPorcentaje = null;
       cursandoArr.forEach(modAsignado => {
-        const registros = studentAttendance.filter(rec => (rec.moduleId === modAsignado.id || rec.moduleName === modAsignado.nombre || rec.moduleName === (careerModules.find(cm => cm.id === modAsignado.id)?.nombre)));
+        const registros = studentAttendance.filter(rec => (rec.moduleId === modAsignado.id || rec.moduleName === modAsignado.nombre || rec.moduleName === (findModule(modAsignado.id)?.nombre)));
         let total = 0;
         let asistidos = 0;
         registros.forEach(rec => {
@@ -212,7 +251,7 @@ const StudentDashboard = () => {
         });
         if (total > 0) {
           let porcentaje = Math.round((asistidos / total) * 100);
-          let nombreModulo = registros.length > 0 ? registros[0].moduleName : (careerModules.find(cm => cm.id === modAsignado.id)?.nombre || 'Módulo');
+          let nombreModulo = registros.length > 0 ? registros[0].moduleName : (findModule(modAsignado.id)?.nombre || 'Módulo');
           if (mejorModulo === null || porcentaje > mejorPorcentaje) {
             mejorModulo = nombreModulo;
             mejorPorcentaje = porcentaje;
@@ -232,7 +271,7 @@ const StudentDashboard = () => {
       const aprobados = [...studentInfo.modulosAsignados].filter(m => m.estado === 'aprobado').reverse();
       let encontrado = false;
       for (const moduloAsignado of aprobados) {
-        const registros = studentAttendance.filter(rec => (rec.moduleId === moduloAsignado.id || rec.moduleName === moduloAsignado.nombre || rec.moduleName === (careerModules.find(cm => cm.id === moduloAsignado.id)?.nombre)));
+        const registros = studentAttendance.filter(rec => (rec.moduleId === moduloAsignado.id || rec.moduleName === moduloAsignado.nombre || rec.moduleName === (findModule(moduloAsignado.id)?.nombre)));
         let total = 0;
         let asistidos = 0;
         registros.forEach(rec => {
@@ -251,7 +290,7 @@ const StudentDashboard = () => {
       if (!encontrado && aprobados.length > 0) {
         // Si no hay ninguno con asistencia, mostrar el último aprobado aunque no tenga asistencia
         const moduloAsignado = aprobados[0];
-        const moduloObj = careerModules.find(cm => cm.id === moduloAsignado.id);
+        const moduloObj = findModule(moduloAsignado.id);
         moduloResumenNombre = moduloObj ? moduloObj.nombre : 'Módulo';
         porcentajeResumen = 0;
       }
@@ -262,7 +301,7 @@ const StudentDashboard = () => {
     (studentInfo?.modulosAsignados || [])
       .filter(m => m.estado === 'cursando')
       .map(m => {
-        const moduloObj = careerModules.find(cm => cm.id === m.id);
+        const moduloObj = findModule(m.id);
         return moduloObj ? moduloObj.nombre : null;
       })
       .filter(Boolean)
@@ -271,7 +310,7 @@ const StudentDashboard = () => {
   const modulosAprobados = (studentInfo?.modulosAsignados || [])
     .filter(m => m.estado === 'aprobado')
     .map(m => {
-      const moduloObj = careerModules.find(cm => cm.id === m.id);
+      const moduloObj = findModule(m.id);
       return moduloObj ? moduloObj.nombre : m.id;
     });
   // Seminarios aprobados (combinando carrera y personalizados)
@@ -375,7 +414,7 @@ const StudentDashboard = () => {
                       <span className="font-semibold text-purple-700">Módulos:</span>
                       <ul className="inline ml-1">
                         {modulosAprobados.map((id, idx) => {
-                          const mod = careerModules.find(m => m.id === id);
+                          const mod = findModule(id);
                           return (
                             <li key={id} className="inline text-gray-800 font-medium">
                               {mod ? mod.nombre : id}{idx < modulosAprobados.length - 1 ? <span className="text-gray-400">, </span> : null}
@@ -420,8 +459,8 @@ const StudentDashboard = () => {
               Object.entries(
                 // Agrupar módulos por semestre
                 Object.entries(notasPorModulo).reduce((acc, [moduleName, notas]) => {
-                  const moduleDetails = careerModules.find(m => m.nombre === moduleName);
-                  const semester = moduleDetails?.semestre || 'General';
+                  const moduleDetails = findModuleByName(moduleName);
+                  const semester = getModuleSemester(moduleDetails);
                   if (!acc[semester]) acc[semester] = {};
                   acc[semester][moduleName] = notas;
                   return acc;
@@ -597,8 +636,8 @@ const StudentDashboard = () => {
               });
 
               const asistenciaPorSemestre = Object.values(asistenciaPorModulo).reduce((acc, modRec) => {
-                const moduleDetails = careerModules.find(m => m.nombre === modRec.moduleName);
-                const semester = moduleDetails?.semestre || 'General';
+                const moduleDetails = findModuleByName(modRec.moduleName);
+                const semester = getModuleSemester(moduleDetails);
                 if (!acc[semester]) {
                   acc[semester] = [];
                 }
@@ -740,10 +779,10 @@ const StudentDashboard = () => {
             }
 
             const modulosAgrupados = studentInfo.modulosAsignados.reduce((acc, modAsignado) => {
-              const modDetails = careerModules.find(m => m.id === modAsignado.id);
+              const modDetails = findModule(modAsignado.id);
               if (!modDetails) return acc;
 
-              const semestre = modDetails.semestre || 'General';
+              const semestre = getModuleSemester(modDetails);
               if (!acc[semestre]) {
                 acc[semestre] = [];
               }
