@@ -83,9 +83,12 @@ const GradeForm = ({
     const selectedModule = availableModules.find(m => m.id === form.moduleId);
     if (!selectedModule) return [];
 
+    // Filtro base: solo estudiantes activos
+    const activeStudents = students.filter(s => s.status === 'active');
+
     // Módulo general tratado como carrera: filtrar por carreras válidas, semestre y que tenga el módulo asignado
     if (scope === 'career' && selectedModule.isGeneral) {
-      return students.filter(s => {
+      return activeStudents.filter(s => {
         const validCareer = Array.isArray(selectedModule.careerList)
           ? selectedModule.careerList.includes(s.career)
           : (selectedModule.carrera ? s.career === selectedModule.carrera : true);
@@ -98,7 +101,7 @@ const GradeForm = ({
     // ESTRATEGIA 1: Si el módulo tiene propiedades de carrera/curso, filtrar estudiantes por eso
     if (scope === 'career' && selectedModule.careerId) {
       // Filtrar estudiantes que pertenecen a la misma carrera Y al mismo semestre
-      return students.filter(s => {
+      return activeStudents.filter(s => {
         const isInCareer = s.careerId === selectedModule.careerId || 
                           s.career === selectedModule.carrera ||
                           s.carrera === selectedModule.carrera;
@@ -111,7 +114,7 @@ const GradeForm = ({
 
     // ESTRATEGIA 2: Si es curso, filtrar por courseId
     if (scope === 'course' && selectedModule.courseId) {
-      return students.filter(s => {
+      return activeStudents.filter(s => {
         if (Array.isArray(s.courses)) {
           return s.courses.includes(selectedModule.courseId);
         }
@@ -120,7 +123,7 @@ const GradeForm = ({
     }
 
     // ESTRATEGIA 3: Mostrar todos los estudiantes del semestre actual
-    return students.filter(s => 
+    return activeStudents.filter(s => 
       !selectedSemester || 
       String(s.semester) === String(selectedSemester) ||
       String(s.semestre) === String(selectedSemester)

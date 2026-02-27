@@ -424,7 +424,9 @@ const AttendanceManager = () => {
 
       // Se necesita la lista completa de estudiantes para buscar nombres y carreras en la tabla.
       const studentsSnap = await getDocs(collection(db, 'students'));
-      const studentsArr = studentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const studentsArr = studentsSnap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(student => student.status === 'active');
       setStudents(studentsArr);
 
       // Construir la consulta a Firestore para asistencias de forma dinámica y robusta.

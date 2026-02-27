@@ -213,6 +213,7 @@ const StudentsTable = () => {
             .map(cs => cs.career);
           
           filtered = students.filter(s => 
+            s.status === 'active' &&
             relevantCareers.includes(s.career) && 
             String(s.semester) === String(assignSemester) &&
             !(Array.isArray(s.modulosAsignados) && s.modulosAsignados.some(m => m.id === assignModule))
@@ -221,6 +222,7 @@ const StudentsTable = () => {
       } else {
         // Si es módulo específico: solo estudiantes de esa carrera
         filtered = students.filter(s => 
+          s.status === 'active' &&
           s.career === assignCareer && 
           String(s.semester) === String(assignSemester) &&
           !(Array.isArray(s.modulosAsignados) && s.modulosAsignados.some(m => m.id === assignModule))
