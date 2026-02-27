@@ -14,6 +14,8 @@ import DashboardLayout from './components/Layout/DashboardLayout';
 // Páginas/componentes
 import './styles.css';
 import LoginForm from './components/Auth/LoginForm';
+import ResetPassword from './components/Auth/ResetPassword';
+import AuthAction from './components/Auth/AuthAction';
 import AdminDashboard from './components/Dashboard/AdminDashboard';
 import StudentDashboard from './components/Dashboard/StudentDashboard';
 import TeacherDashboard from './components/Dashboard/TeacherDashboard';
@@ -30,6 +32,7 @@ import GradeReportPage from './components/Grades/GradeReportPage'; // Importa la
 import AttendanceManager from './components/Attendance/AttendanceManager';
 import VistaCarreras from './components/Carreras/VistaCarreras';
 import VistaCursos from './components/Cursos/VistaCursos';
+import GeneralModuleManager from './components/Carreras/GeneralModuleManager';
 
 const Page404 = () => <div>Página no encontrada</div>;
 
@@ -79,6 +82,10 @@ function App() {
           <Routes>
           {/* Ruta pública de login */}
           <Route path="/login" element={<LoginForm />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+          
+          {/* Interceptar los enlaces genéricos de Firebase (/__/auth/action?mode=resetPassword&oobCode=XXX) */}
+          <Route path="/__/auth/action" element={<AuthAction />} />
 
           {/* Ruta pública para el reporte */}
           <Route path="/grades/report" element={<GradeReportPage />} />
@@ -164,6 +171,11 @@ function App() {
             <Route path="courses" element={
               <ProtectedRoute roles={['admin']}>
                 <VistaCursos />
+              </ProtectedRoute>
+            } />
+            <Route path="general-modules" element={
+              <ProtectedRoute roles={['admin']}>
+                <GeneralModuleManager />
               </ProtectedRoute>
             } />
           </Route>
