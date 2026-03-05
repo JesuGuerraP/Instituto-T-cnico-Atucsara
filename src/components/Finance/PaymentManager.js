@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, setDoc } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, setDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 import { format } from 'date-fns';
 import { toast } from 'react-toastify';
@@ -80,6 +80,7 @@ const PaymentManager = () => {
   const [teachers, setTeachers] = useState([]);
   const [courses, setCourses] = useState([]);
   const [modulesByCourse, setModulesByCourse] = useState({});
+  const [courseEnrolledStudents, setCourseEnrolledStudents] = useState([]); // Estudiantes inscritos en el curso seleccionado
   const [resumenEstudianteId, setResumenEstudianteId] = useState(null);
   const [resumenCursoData, setResumenCursoData] = useState(null); // {studentId, courseId}
   const [discounts, setDiscounts] = useState({}); // Almacenar descuentos por estudiante
@@ -323,6 +324,70 @@ const PaymentManager = () => {
     }
   };
 
+  // Efecto para filtrar estudiantes inscritos en el curso y módulo seleccionados
+  useEffect(() => {
+    const filterCourseStudents = async () => {
+      if (!formData.courseId) {
+        setCourseEnrolledStudents([]);
+        return;
+      }
+
+      try {
+        // Obtener el curso con sus estudiantes inscritos
+        const courseDoc = courses.find(c => c.id === formData.courseId);
+        if (!courseDoc) {
+          setCourseEnrolledStudents([]);
+          return;
+        }
+
+        // Intentar obtener estudiantes del curso desde el estado; si no existen, intentar leer directamente del curso
+        let courseStudentsRaw = Array.isArray(courseDoc.students) ? courseDoc.students : [];
+        if ((!courseStudentsRaw || courseStudentsRaw.length === 0) && formData.courseId) {
+          try {
+            const courseSnap = await getDoc(doc(db, 'courses', formData.courseId));
+            if (courseSnap.exists()) {
+              const cd = courseSnap.data();
+              courseStudentsRaw = Array.isArray(cd.students) ? cd.students : [];
+            }
+          } catch (e) {
+            console.error('Error cargando curso para obtener estudiantes:', e);
+          }
+        }
+        const enrolledStudentIds = courseStudentsRaw.map(s => (typeof s === 'string' ? s : s.id)).filter(Boolean);
+
+        // Determinar IDs candidatos según módulo (si aplica)
+        let candidateIds = enrolledStudentIds;
+        if (formData.moduleId && formData.category === 'Pago de módulo (Curso)') {
+          try {
+            const snap = await getDocs(collection(db, 'courses', formData.courseId, 'modules', formData.moduleId, 'students'));
+            const moduleStudentIds = snap.docs.map(d => d.id);
+            candidateIds = enrolledStudentIds.filter(id => moduleStudentIds.includes(id));
+          } catch (e) {
+            console.error('Error al cargar estudiantes del módulo:', e);
+            // mantener candidateIds como enrolledStudentIds
+          }
+        }
+
+        // Enriquecer con datos del estudiante; si no está en la lista global (por estado, etc.), usar nombre del curso
+        const enriched = candidateIds.map(id => {
+          const st = students.find(s => s.id === id);
+          if (st) return st;
+          const fromCourse = courseStudentsRaw.find(s => (typeof s === 'string' ? s === id : s.id === id));
+          return {
+            id,
+            name: (fromCourse && (fromCourse.name || fromCourse.fullName || fromCourse.email)) || 'Estudiante',
+          };
+        });
+        setCourseEnrolledStudents(enriched);
+      } catch (error) {
+        console.error('Error al filtrar estudiantes del curso:', error);
+        setCourseEnrolledStudents([]);
+      }
+    };
+
+    filterCourseStudents();
+  }, [formData.courseId, formData.moduleId, formData.category, courses, students]);
+
   const filteredTransactions = transactions.filter(transaction => {
     const student = students.find(s => s.id === transaction.studentId);
     
@@ -457,13 +522,23 @@ const PaymentManager = () => {
       date: format(new Date(), 'yyyy-MM-dd'),
       periodo: selectedPeriod,
       semestre: selectedSemester,
+      ambito: 'carrera',
+      courseId: '',
+      moduleId: '',
     });
     setEditingTransaction(null);
     setIsDialogOpen(false);
   };
 
-  const handleEdit = (transaction) => {
+  const handleEdit = async (transaction) => {
     setEditingTransaction(transaction);
+    
+    // Determinar el ámbito según los campos presentes
+    let ambito = 'carrera';
+    if (transaction.courseId) {
+      ambito = 'curso';
+    }
+    
     setFormData({
       type: transaction.type,
       category: transaction.category,
@@ -475,7 +550,31 @@ const PaymentManager = () => {
       teacherId: transaction.teacherId || '',
       periodo: transaction.periodo || selectedPeriod,
       semestre: transaction.semestre || selectedSemester,
+      ambito: ambito,
+      courseId: transaction.courseId || '',
+      moduleId: transaction.moduleId || '',
     });
+    
+    // Si es un pago de curso, cargar los módulos
+    if (transaction.courseId) {
+      await fetchCourseModules(transaction.courseId);
+    }
+    
+    // Cargar el descuento apropiado según el tipo de pago
+    if (transaction.studentId) {
+      // Si es pago de curso, cargar descuento de courseDiscounts
+      if (transaction.courseId && (transaction.category === 'Matrícula Curso' || transaction.category === 'Pago de módulo (Curso)')) {
+        const courseDiscountKey = `${transaction.studentId}_${transaction.courseId}`;
+        const existingCourseDiscount = courseDiscounts[courseDiscountKey];
+        if (existingCourseDiscount !== undefined) {
+          setDiscounts(prev => ({ ...prev, [transaction.studentId]: existingCourseDiscount }));
+        }
+      } else if (discounts[transaction.studentId] !== undefined) {
+        // Si es pago de carrera, el descuento ya debe estar en el estado discounts
+        setDiscounts(prev => ({ ...prev, [transaction.studentId]: discounts[transaction.studentId] }));
+      }
+    }
+    
     setIsDialogOpen(true);
     // Si se está editando desde el resumen de pagos de módulo, cerrar el modal de resumen
     setResumenEstudianteId(null);
@@ -519,10 +618,19 @@ const PaymentManager = () => {
       toast.success('Pago de módulo eliminado correctamente');
       setShowDeleteModal(false);
       setTransactionToDelete(null);
-      // Si ya no quedan pagos de módulo para el estudiante, cerrar el modal y actualizar la vista principal
-      const pagosRestantes = transactions.filter(t => t.category === 'Pago de módulo' && t.studentId === resumenEstudianteId && t.id !== transactionToDelete);
-      if (pagosRestantes.length === 0) {
+
+      // Cerrar modal de resumen de carreras si corresponde
+      const pagosRestantesCarrera = transactions.filter(t => t.category === 'Pago de módulo' && t.studentId === resumenEstudianteId && t.id !== transactionToDelete);
+      if (pagosRestantesCarrera.length === 0) {
         setResumenEstudianteId(null);
+      }
+      // Cerrar modal de resumen de cursos si corresponde
+      if (resumenCursoData) {
+        const key = `${resumenCursoData.studentId}_${resumenCursoData.courseId}`;
+        const pagosRestantesCurso = transactions.filter(t => t.category === 'Pago de módulo (Curso)' && t.studentId === resumenCursoData.studentId && t.courseId === resumenCursoData.courseId && t.id !== transactionToDelete);
+        if (pagosRestantesCurso.length === 0) {
+          setResumenCursoData(null);
+        }
       }
     } catch (error) {
       toast.error('Error al eliminar el pago de módulo.');
@@ -1043,14 +1151,29 @@ const PaymentManager = () => {
               {/* Selector de estudiante obligatorio si es matrícula o pago de módulo */}
               {showStudentSelect && (
                 <div>
-                  <label className="block text-sm font-medium mb-1">Estudiante</label>
+                  <label className="block text-sm font-medium mb-1">
+                    Estudiante
+                    {isCourseStudentPayment && formData.courseId && (
+                      <span className="text-xs text-gray-500 ml-2">
+                        (inscritos en curso: {courseEnrolledStudents.length})
+                      </span>
+                    )}
+                  </label>
                   <Select
                     className="mb-2"
-                    options={students.map(student => ({
+                    options={(
+                      isCourseStudentPayment && formData.courseId 
+                        ? courseEnrolledStudents 
+                        : students
+                    ).map(student => ({
                       value: student.id,
                       label: student.name || student.fullName || student.email
                     }))}
-                    value={students
+                    value={(
+                      isCourseStudentPayment && formData.courseId 
+                        ? courseEnrolledStudents 
+                        : students
+                    )
                       .filter(student => student.id === formData.studentId)
                       .map(student => ({ value: student.id, label: student.name || student.fullName || student.email }))[0] || null}
                     onChange={option => {
@@ -1073,6 +1196,9 @@ const PaymentManager = () => {
                     isSearchable
                     required={studentSelectRequired}
                   />
+                  {isCourseStudentPayment && formData.courseId && courseEnrolledStudents.length === 0 && (
+                    <p className="text-xs text-red-600 mt-1">No hay estudiantes inscritos en este curso.</p>
+                  )}
                 </div>
               )}
               {/* Campo de descuento para matrículas (carrera y curso) o si es pago de módulo y el estudiante tiene descuento */}
@@ -1171,25 +1297,76 @@ const PaymentManager = () => {
       )}
 
       {/* Modal de Resumen de Pagos (Cursos) */}
-      {resumenCursoData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-          <div className="bg-white rounded-lg shadow-lg p-6 sm:p-8 max-w-2xl w-full relative border-t-4 border-purple-600 max-h-[90vh] overflow-y-auto">
-            <button className="absolute top-4 right-4 text-gray-500 hover:text-gray-700" onClick={() => setResumenCursoData(null)}>&times;</button>
-            <h3 className="text-xl font-bold mb-4 text-purple-700">Resumen de Pagos (Curso)</h3>
-            <p className="mb-1 font-semibold">Estudiante: {students.find(s => s.id === resumenCursoData.studentId)?.name || 'Desconocido'}</p>
-            <p className="mb-4 font-semibold">Curso: {courses.find(c => c.id === resumenCursoData.courseId)?.nombre || 'Desconocido'}</p>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm mb-4 min-w-[500px]">
-                {/* ... misma estructura de tabla que el modal de carreras ... */}
-              </table>
+      {resumenCursoData && (() => {
+        const key = `${resumenCursoData.studentId}_${resumenCursoData.courseId}`;
+        const grupo = pagosModuloCursoPorEstudianteCurso[key] || { pagos: [] };
+        const course = courses.find(c => c.id === resumenCursoData.courseId);
+        const descuentoCurso = courseDiscounts[key] || 0;
+        const valorTotalCurso = course ? Number(course.valorTotal || 0) : 0;
+        const valorTotalConDescuento = calculateDiscountedAmount(valorTotalCurso, descuentoCurso);
+        const totalPagado = grupo.pagos.reduce((sum, t) => sum + Number(t.amount), 0);
+        const saldoPendiente = valorTotalConDescuento - totalPagado;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+            <div className="bg-white rounded-lg shadow-lg p-6 sm:p-8 max-w-2xl w-full relative border-t-4 border-purple-600 max-h-[90vh] overflow-y-auto">
+              <button className="absolute top-4 right-4 text-gray-500 hover:text-gray-700" onClick={() => setResumenCursoData(null)}>&times;</button>
+              <h3 className="text-xl font-bold mb-2 text-purple-700">Resumen de Pagos (Curso)</h3>
+              <p className="mb-1 font-semibold">Estudiante: {students.find(s => s.id === resumenCursoData.studentId)?.name || 'Desconocido'}</p>
+              <p className="mb-2 font-semibold">Curso: {course ? course.nombre : 'Desconocido'}</p>
+              {descuentoCurso > 0 && (
+                <p className="text-xs text-green-600 mb-2">Descuento aplicado en matrícula del curso: {descuentoCurso}%</p>
+              )}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm mb-4 min-w-[600px]">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-2 px-2">Descripción</th>
+                      <th className="text-left py-2 px-2">Fecha</th>
+                      <th className="text-right py-2 px-2">Valor</th>
+                      <th className="text-center py-2 px-2">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {grupo.pagos.map(pago => (
+                      <tr key={pago.id} className="border-b">
+                        <td className="py-2 px-2">{pago.description}</td>
+                        <td className="py-2 px-2 whitespace-nowrap">{pago.date ? new Date(pago.date + 'T00:00:00').toLocaleDateString('es-CO') : ''}</td>
+                        <td className="py-2 px-2 text-right">{formatCurrency(pago.amount)}</td>
+                        <td className="py-2 px-2">
+                          <div className="flex gap-2 justify-center">
+                            <button onClick={() => handleEdit(pago)} className="border rounded p-1 text-[#ffd600] hover:bg-gray-50" title="Editar">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L16.732 3.732z"></path></svg>
+                            </button>
+                            <button onClick={() => handleDeletePagoModulo(pago.id)} className="border rounded p-1 text-red-600 hover:bg-red-100" title="Eliminar">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                            </button>
+                            <button onClick={() => { setPagoParaRecibo(pago); setReciboNumero(pago.reciboNumero || ''); }} className="border rounded p-1 text-blue-600 hover:bg-blue-50" title="Imprimir">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="text-sm text-gray-700">
+                  <div>Valor total del curso: {formatCurrency(valorTotalCurso)}</div>
+                  {descuentoCurso > 0 && (
+                    <div>Con descuento ({descuentoCurso}%): {formatCurrency(valorTotalConDescuento)}</div>
+                  )}
+                </div>
+                <div className="text-right font-semibold">
+                  <div>Total Pagado: {formatCurrency(totalPagado)}</div>
+                  <div className="text-yellow-700">Saldo pendiente: {formatCurrency(saldoPendiente)}</div>
+                </div>
+              </div>
             </div>
-            <div className="font-semibold text-right mt-4">Total Pagado: {formatCurrency((() => {
-              const key = `${resumenCursoData.studentId}_${resumenCursoData.courseId}`;
-              return pagosModuloCursoPorEstudianteCurso[key]?.pagos.reduce((sum, t) => sum + Number(t.amount), 0) || 0;
-            })())}</div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Modal de Confirmación de Eliminación */}
       {showDeleteModal && (

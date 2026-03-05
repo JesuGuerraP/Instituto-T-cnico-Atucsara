@@ -164,8 +164,10 @@ const VistaCursos = () => {
     }
   };
 
-  const abrirModulos = (curso) => {
+  const abrirModulos = async (curso) => {
+    // Establecer curso y refrescar desde Firestore para asegurar students y modules actualizados
     setCursoSeleccionado(curso);
+    await refreshCursoSeleccionado(curso.id);
     setTab('modulos');
   };
 
@@ -207,6 +209,26 @@ const VistaCursos = () => {
     if (!cursoSeleccionado) return;
     setModuloParaAsignar(modulo);
     setModuleStudentFilter('');
+
+    // Asegurar que la lista de asignaciones del curso esté cargada
+    try {
+      if (!Array.isArray(cursoSeleccionado.students)) {
+        const cSnap = await getDoc(doc(db, 'courses', cursoSeleccionado.id));
+        if (cSnap.exists()) {
+          const cData = cSnap.data();
+          setAsignaciones(Array.isArray(cData.students) ? cData.students : []);
+        } else {
+          setAsignaciones([]);
+        }
+      } else {
+        setAsignaciones(cursoSeleccionado.students);
+      }
+    } catch (e) {
+      console.error('Error obteniendo estudiantes del curso:', e);
+      setAsignaciones([]);
+    }
+
+    // Cargar estudiantes ya asignados al módulo (subcolección)
     try {
       const snap = await getDocs(collection(db, 'courses', cursoSeleccionado.id, 'modules', modulo.id, 'students'));
       const ids = snap.docs.map(d => d.id);
@@ -217,6 +239,7 @@ const VistaCursos = () => {
       setModuleAssignedIds([]);
       setModuleAssignedIdsOrig([]);
     }
+
     setModalAsignarModulo(true);
   };
 
