@@ -11,7 +11,8 @@ import { DefaultPeriodContext } from '../../context/DefaultPeriodContext';
 const GROUP_OPTIONS = [
   'ACTIVIDADES_1',
   'ACTIVIDADES_2',
-  'EVALUACION_FINAL'
+  'EVALUACION_FINAL',
+  'HABILITACION'
 ];
 
 const GradeManager = () => {

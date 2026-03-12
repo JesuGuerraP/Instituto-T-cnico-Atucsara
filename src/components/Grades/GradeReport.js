@@ -2,8 +2,17 @@ import React, { useRef } from 'react';
 
 const getUnique = (arr, key) => [...new Map(arr.map(item => [item[key], item])).values()];
 
-// Calcula el promedio ponderado final según los grupos
+// Calcula el promedio ponderado final o devuelve la nota de habilitación si existe
 const calcularPromedioFinal = (notas) => {
+  const notaHabilitacion = notas.find(n => n.groupId === 'HABILITACION' || n.groupName === 'HABILITACION');
+
+  if (notaHabilitacion) {
+    return {
+      finalGrade: parseFloat(notaHabilitacion.grade).toFixed(2),
+      isHabilitacion: true
+    };
+  }
+
   // Buscar la nota de cada grupo
   const getNota = (grupo) => {
     // Puede haber varias, tomar el promedio si hay más de una
@@ -11,6 +20,7 @@ const calcularPromedioFinal = (notas) => {
     if (!grupoNotas.length) return null;
     return grupoNotas.reduce((acc, n) => acc + parseFloat(n.grade), 0) / grupoNotas.length;
   };
+
   const act1 = getNota('ACTIVIDADES_1');
   const act2 = getNota('ACTIVIDADES_2');
   const evalFinal = getNota('EVALUACION_FINAL');
@@ -19,7 +29,12 @@ const calcularPromedioFinal = (notas) => {
   const p2 = act2 != null ? act2 : 0;
   const pf = evalFinal != null ? evalFinal : 0;
   // Ponderación
-  return (p1 * 0.3 + p2 * 0.3 + pf * 0.4).toFixed(2);
+  const promedio = (p1 * 0.3 + p2 * 0.3 + pf * 0.4);
+  
+  return {
+    finalGrade: promedio.toFixed(2),
+    isHabilitacion: false
+  };
 };
 
 const getStats = (grades) => {
@@ -105,14 +120,17 @@ const GradeReport = ({ grades, onClose }) => {
       {/* Panel por alumno */}
       {notasPorAlumno.map(stu => {
         const stats = getStats(stu.notas);
-        const promedioFinal = calcularPromedioFinal(stu.notas);
+        const { finalGrade, isHabilitacion } = calcularPromedioFinal(stu.notas);
         return (
           <div key={stu.studentId} className="mb-6 border rounded bg-[#f5f7fa]">
             <div className="font-semibold bg-[#e3eafc] px-3 py-2 rounded-t text-[#23408e]">
               {stu.fullName}
             </div>
             <div className="p-3">
-              <div className="mb-2 font-bold text-[#009245]">Promedio Final del Módulo: <span className="inline-block px-2 py-1 rounded bg-[#e3fcec] text-[#23408e]">{promedioFinal}</span></div>
+              <div className="mb-2 font-bold text-[#009245]">Promedio Final del Módulo: 
+                <span className="inline-block px-2 py-1 rounded bg-[#e3fcec] text-[#23408e] ml-2">{finalGrade}</span>
+                {isHabilitacion && <span className="ml-2 px-2 py-1 text-xs font-bold text-white bg-blue-500 rounded">HABILITACIÓN</span>}
+              </div>
               <table className="min-w-full border mb-2">
                 <thead>
                   <tr>
@@ -145,7 +163,7 @@ const GradeReport = ({ grades, onClose }) => {
                   </thead>
                   <tbody>
                     {stu.notas.map((n, i) => (
-                      <tr key={i}>
+                      <tr key={i} className={n.groupId === 'HABILITACION' ? 'bg-blue-100' : ''}>
                         <td className="border px-2 py-1">{n.activityName}</td>
                         <td className="border px-2 py-1">{n.groupName}</td>
                         <td className="border px-2 py-1">{n.grade}</td>

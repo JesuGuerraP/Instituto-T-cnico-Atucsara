@@ -203,6 +203,15 @@ const StudentDashboard = () => {
   });
   // Función para calcular promedio ponderado igual que en GradeReport.js (redondeando a 2 decimales, usando 0 si falta algún grupo)
   const calcularPromedioFinal = (notas) => {
+    const notaHabilitacion = notas.find(n => n.groupId === 'HABILITACION' || n.groupName === 'HABILITACION');
+
+    if (notaHabilitacion) {
+        return {
+            finalGrade: parseFloat(notaHabilitacion.grade).toFixed(2),
+            isHabilitacion: true
+        };
+    }
+
     const getNota = (grupo) => {
       const grupoNotas = notas.filter(n => n.groupId === grupo || n.groupName === grupo);
       if (!grupoNotas.length) return 0;
@@ -214,7 +223,11 @@ const StudentDashboard = () => {
     const p1 = act1 != null ? act1 : 0;
     const p2 = act2 != null ? act2 : 0;
     const pf = evalFinal != null ? evalFinal : 0;
-    return (p1 * 0.3 + p2 * 0.3 + pf * 0.4).toFixed(2);
+    
+    return {
+        finalGrade: (p1 * 0.3 + p2 * 0.3 + pf * 0.4).toFixed(2),
+        isHabilitacion: false
+    };
   };
 
   // Calcular asistencia real por módulo
@@ -488,7 +501,14 @@ const StudentDashboard = () => {
                           <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4 gap-1">
                             <div className="flex-1 flex items-center gap-2">
                               <span className="font-bold text-[#23408e] text-base">{modulo}</span>
-                              <span className="px-3 py-1 rounded-lg bg-[#e3fcec] text-[#23408e] font-bold text-lg shadow border border-[#009245]">{calcularPromedioFinal(notas)}</span>
+                              {(promedio => (
+                                <>
+                                  <span className={`px-3 py-1 rounded-lg bg-[#e3fcec] text-[#23408e] font-bold text-lg shadow border ${promedio.isHabilitacion ? 'border-blue-500' : 'border-[#009245]'}`}>
+                                    {promedio.finalGrade}
+                                  </span>
+                                  {promedio.isHabilitacion && <span className="px-2 py-1 text-xs font-bold text-white bg-blue-500 rounded">HABILITACIÓN</span>}
+                                </>
+                              ))(calcularPromedioFinal(notas))}
                             </div>
                             <div className="flex gap-2 mt-2 sm:mt-0">
                               <button

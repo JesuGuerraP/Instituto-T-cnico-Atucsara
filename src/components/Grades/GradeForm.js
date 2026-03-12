@@ -5,7 +5,8 @@ import Select from 'react-select';
 const GROUP_OPTIONS = [
   { id: 'ACTIVIDADES_1', name: 'ACTIVIDADES_1' },
   { id: 'ACTIVIDADES_2', name: 'ACTIVIDADES_2' },
-  { id: 'EVALUACION_FINAL', name: 'EVALUACION_FINAL' }
+  { id: 'EVALUACION_FINAL', name: 'EVALUACION_FINAL' },
+  { id: 'HABILITACION', name: 'HABILITACION' }
 ];
 
 const GradeForm = ({ 
@@ -73,6 +74,12 @@ const GradeForm = ({
       }
     }
   }, [editGrade, currentUser, teachers, students, selectedPeriod, selectedSemester, scope]);
+
+  useEffect(() => {
+    if (form.groupId === 'HABILITACION') {
+      setForm(f => ({ ...f, activityName: 'Habilitación' }));
+    }
+  }, [form.groupId]);
 
   const availableModules = useMemo(() => {
     return modules.filter(m => {
@@ -211,13 +218,17 @@ const GradeForm = ({
         const studentId = student.value;
         const studentData = students.find(s => s.id === studentId);
         const grade = studentGrades[studentId];
-
+        
+        const isHabilitacion = form.groupId === 'HABILITACION';
+        
         const gradeData = {
           ...form,
           studentId: studentId,
           studentName: studentData ? `${studentData.name} ${studentData.lastName}` : '',
           grade: grade,
-          id: `${studentId}_${form.moduleId}_${form.activityName}_${Date.now()}`
+          id: isHabilitacion 
+               ? `${studentId}_${form.moduleId}_HABILITACION`
+               : `${studentId}_${form.moduleId}_${form.activityName.replace(/\s+/g, '-')}_${Date.now()}`
         };
 
         if (scope === 'career') {
@@ -285,7 +296,7 @@ const GradeForm = ({
 
             <div>
               <label className="block font-semibold mb-1 text-[#009245]">Nombre de la Actividad:</label>
-              <input type="text" name="activityName" value={form.activityName} onChange={handleChange} className="w-full p-2 border border-gray-300 rounded-md" placeholder="Ej: Prueba escrita, Taller" required />
+              <input type="text" name="activityName" value={form.activityName} onChange={handleChange} className="w-full p-2 border border-gray-300 rounded-md" placeholder="Ej: Prueba escrita, Taller" required disabled={form.groupId === 'HABILITACION'}/>
             </div>
 
             <div>
