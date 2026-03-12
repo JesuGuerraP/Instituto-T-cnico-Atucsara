@@ -60,7 +60,12 @@ const AttendanceManager = () => {
         });
         
         setAcademicPeriods(sortedPeriods);
-        setSelectedPeriod(sortedPeriods[0]); // Set the most recent as default
+        // Priorizar el período del contexto si está disponible en la lista
+        if (defaultPeriod && sortedPeriods.includes(defaultPeriod)) {
+          setSelectedPeriod(defaultPeriod);
+        } else {
+          setSelectedPeriod(sortedPeriods[0]); // Set the most recent as default
+        }
       } else {
         setAcademicPeriods([defaultPeriod]);
         setSelectedPeriod(defaultPeriod);
@@ -100,59 +105,9 @@ const AttendanceManager = () => {
   // Lista global de módulos para el filtro
   const [allModuleNames, setAllModuleNames] = useState([]);
   const [studentToEdit, setStudentToEdit] = useState(null);
-
-  const migrateAttendanceRecords = async () => {
-    try {
-      const attendanceRef = collection(db, 'attendance');
-      const batch = writeBatch(db);
-      let updateCount = 0;
-
-      // Para añadir la carrera, necesitamos un mapa de estudiantes.
-      const studentsSnap = await getDocs(collection(db, 'students'));
-      const studentsMap = new Map();
-      studentsSnap.forEach(doc => {
-        studentsMap.set(doc.id, doc.data());
-      });
-
-      const snapshot = await getDocs(attendanceRef);
-
-      snapshot.forEach((document) => {
-        const data = document.data();
-        const updates = {};
-
-        // Asignar período y semestre por defecto si no existen.
-        if (!data.period) {
-          updates.period = '2025-1';
-        }
-        if (!data.semester) {
-          updates.semester = '1';
-        }
-
-        // Asignar carrera si no existe, basándose en el estudiante.
-        if (!data.carrera && data.studentId) {
-          const student = studentsMap.get(data.studentId);
-          if (student && student.career) {
-            updates.carrera = student.career;
-          }
-        }
-        
-        // Si hay algo que actualizar, se añade al batch.
-        if (Object.keys(updates).length > 0) {
-          batch.update(document.ref, updates);
-          updateCount++;
-        }
-      });
-
-      if (updateCount > 0) {
-        await batch.commit();
-        console.log(`Se migraron/actualizaron ${updateCount} registros de asistencia.`);
-        toast.success(`Se han actualizado ${updateCount} registros de asistencia con datos faltantes.`);
-      }
-    } catch (error) {
-      console.error('Error al migrar asistencias:', error);
-      toast.error('Error al intentar migrar los registros de asistencia.');
-    }
-  };
+  // Estados para capturar el contexto al abrir el modal
+  const [periodForModal, setPeriodForModal] = useState('');
+  const [semesterForModal, setSemesterForModal] = useState('');
 
   // Cargar períodos académicos al iniciar
   useEffect(() => {
@@ -165,9 +120,6 @@ const AttendanceManager = () => {
       
       // Primero cargar los períodos académicos
       await loadAcademicPeriods();
-      
-      // Luego migrar las asistencias existentes
-      await migrateAttendanceRecords();
       
       // Obtener todos los usuarios para mostrar nombre en "registrado por"
       const usersSnap = await getDocs(collection(db, 'users'));
@@ -508,16 +460,15 @@ const AttendanceManager = () => {
       toast.error('No hay estudiantes en la lista o falta el nombre del módulo.');
       return;
     }
-    if (!selectedPeriod) {
+    if (!periodForModal) {
       toast.error('Debes seleccionar un período académico.');
       return;
     }
-    if (!selectedSemester) {
-      toast.error('Debes seleccionar un semestre.');
+    if (selectedScope === 'career' && !semesterForModal) {
+      toast.error('Debes seleccionar un semestre para el ámbito de Carrera.');
       return;
     }
     try {
-      // Guardar solo la asistencia de los estudiantes que tengan algún valor marcado (asistió/no asistió en al menos una fecha)
       const studentsWithAttendance = studentsToSave.filter(student => 
         attendance[student.id] && Object.keys(attendance[student.id]).length > 0
       );
@@ -528,18 +479,41 @@ const AttendanceManager = () => {
       }
       
       for (const student of studentsWithAttendance) {
-        // Leer asistencia previa (si existe)
-        const docRef = doc(db, 'attendance', `${student.id}_${moduleName}_${selectedPeriod}_${selectedSemester}`);
+        let docRef;
+        const dataToSave = {
+            studentId: student.id,
+            moduleName,
+            period: periodForModal,
+            scope: selectedScope,
+            studentName: `${student.name} ${student.lastName || ''}`.trim(),
+            updatedBy: currentUser.uid,
+            updatedAt: new Date().toISOString(),
+            attendance: {},
+        };
+
+        if (selectedScope === 'career') {
+            docRef = doc(db, 'attendance', `${student.id}_${moduleName}_${periodForModal}_${semesterForModal}`);
+            dataToSave.semester = semesterForModal;
+            dataToSave.carrera = student.career;
+        } else { // scope === 'course'
+            docRef = doc(db, 'attendance', `${student.id}_${moduleName}_${periodForModal}`);
+            dataToSave.courseId = selectedCourse;
+            dataToSave.courseName = coursesList.find(c => c.id === selectedCourse)?.nombre || '';
+        }
+
         let prevAttendance = {};
         try {
-          const prevDoc = await getDocs(query(collection(db, 'attendance'), where('studentId', '==', student.id), where('moduleName', '==', moduleName)));
-          prevDoc.forEach(d => {
-            if (d.id === `${student.id}_${moduleName}` && d.data().attendance) {
-              prevAttendance = d.data().attendance;
-            }
-          });
+            const prevDocSnap = await getDocs(query(collection(db, 'attendance'), where('studentId', '==', student.id), where('moduleName', '==', moduleName), where('period', '==', periodForModal)));
+            prevDocSnap.forEach(d => {
+                const expectedId = selectedScope === 'career' 
+                    ? `${student.id}_${moduleName}_${periodForModal}_${semesterForModal}`
+                    : `${student.id}_${moduleName}_${periodForModal}`;
+                if (d.id === expectedId) {
+                    prevAttendance = d.data().attendance || {};
+                }
+            });
         } catch (e) {}
-        // Solo guardar si hay cambios reales
+        
         let hasChanges = false;
         const mergedAttendance = { ...prevAttendance };
         for (const [dateStr, value] of Object.entries(attendance[student.id])) {
@@ -548,36 +522,18 @@ const AttendanceManager = () => {
             mergedAttendance[dateStr] = value;
           }
         }
-        // Eliminar fechas que ya no están en attendance[student.id]
         for (const dateStr of Object.keys(prevAttendance)) {
           if (!(dateStr in (attendance[student.id] || {}))) {
             hasChanges = true;
             delete mergedAttendance[dateStr];
           }
         }
-        // Si no queda ninguna asistencia, eliminar el documento
+        
         if (hasChanges) {
           if (Object.keys(mergedAttendance).length === 0) {
             await deleteDoc(docRef);
           } else {
-            const dataToSave = {
-              studentId: student.id,
-              moduleName,
-              attendance: mergedAttendance,
-              period: selectedPeriod,
-              semester: selectedSemester,
-              scope: selectedScope,
-              studentName: `${student.name} ${student.lastName || ''}`.trim(),
-              updatedBy: currentUser.uid,
-              updatedAt: new Date().toISOString(),
-            };
-
-            if (selectedScope === 'career') {
-              dataToSave.carrera = student.career;
-            } else { // scope === 'course'
-              dataToSave.courseId = selectedCourse;
-              dataToSave.courseName = coursesList.find(c => c.id === selectedCourse)?.nombre || '';
-            }
+            dataToSave.attendance = mergedAttendance;
             await setDoc(docRef, dataToSave);
           }
         }
@@ -586,7 +542,7 @@ const AttendanceManager = () => {
       fetchAttendanceRecords(); // Recargar la tabla principal
     } catch (e) {
       console.error("Error saving attendance:", e);
-      toast.error('Error al guardar la asistencia');
+      toast.error('Error al guardar la asistencia: ' + e.message);
     }
   };
 
@@ -990,6 +946,10 @@ const AttendanceManager = () => {
           </div>
           <button
             onClick={() => {
+              // Capturar el período y semestre de los filtros principales
+              setPeriodForModal(selectedPeriod);
+              setSemesterForModal(selectedSemester);
+              // Abrir y resetear el modal
               setShowModal(true);
               setModuleName('');
               setSelectedModule('');

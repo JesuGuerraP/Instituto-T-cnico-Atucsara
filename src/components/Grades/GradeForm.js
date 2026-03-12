@@ -42,10 +42,20 @@ const GradeForm = ({
   });
 
   useEffect(() => {
+    // Sincronizar período y semestre con las props
+    setForm(f => ({
+      ...f,
+      period: selectedPeriod || '',
+      semester: scope === 'career' ? selectedSemester || f.semester || '1' : ''
+    }));
+
     if (editGrade) {
       setForm({
         ...editGrade,
         date: editGrade.date || new Date().toISOString().slice(0, 10),
+        // Asegurarse que el período de la prop sobreescriba si es necesario
+        period: selectedPeriod || editGrade.period,
+        semester: scope === 'career' ? (selectedSemester || editGrade.semester) : ''
       });
       // Pre-seleccionar el estudiante en modo edición
       const student = students.find(s => s.id === editGrade.studentId);
