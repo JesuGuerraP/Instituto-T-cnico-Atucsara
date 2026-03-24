@@ -276,8 +276,7 @@ const PaymentManager = () => {
     try {
       const snapshot = await getDocs(collection(db, 'students'));
       const studentsData = snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(student => student.status === 'active');
+        .map(doc => ({ id: doc.id, ...doc.data() }));
       setStudents(studentsData);
       // Poblar descuentos desde Firestore
       const discountsFromDb = {};
