@@ -1166,7 +1166,7 @@ const PaymentManager = () => {
                         : students
                     ).map(student => ({
                       value: student.id,
-                      label: student.name || student.fullName || student.email
+                      label: (student.name && student.lastName) ? `${student.name} ${student.lastName}` : (student.name || student.fullName || student.email)
                     }))}
                     value={(
                       isCourseStudentPayment && formData.courseId 
@@ -1174,7 +1174,7 @@ const PaymentManager = () => {
                         : students
                     )
                       .filter(student => student.id === formData.studentId)
-                      .map(student => ({ value: student.id, label: student.name || student.fullName || student.email }))[0] || null}
+                      .map(student => ({ value: student.id, label: (student.name && student.lastName) ? `${student.name} ${student.lastName}` : (student.name || student.fullName || student.email) }))[0] || null}
                     onChange={option => {
                       const studentId = option ? option.value : '';
                       setFormData({ ...formData, studentId });
