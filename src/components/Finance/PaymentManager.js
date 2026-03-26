@@ -233,6 +233,35 @@ const PaymentManager = () => {
     fetchData();
   }, [currentUser]);
 
+  // Función auxiliar para obtener el nombre del estudiante, incluso si no está en la colección global
+  const getStudentName = (studentId, courseId = null) => {
+    if (!studentId) return 'Desconocido';
+    const st = students.find(s => s.id === studentId);
+    if (st) return st.name && st.lastName ? `${st.name} ${st.lastName}` : (st.name || st.fullName || st.email || 'Estudiante');
+
+    // Si no está en la colección global, intentar buscarlo en los cursos
+    if (courseId) {
+      const course = courses.find(c => c.id === courseId);
+      if (course && Array.isArray(course.students)) {
+        const fromCourse = course.students.find(s => (typeof s === 'string' ? s === studentId : s.id === studentId));
+        if (fromCourse && typeof fromCourse !== 'string') {
+          return fromCourse.name || fromCourse.fullName || fromCourse.email || 'Estudiante';
+        }
+      }
+    } else {
+      // Si no hay courseId, buscar en todos los cursos si es necesario
+      for (const course of courses) {
+        if (Array.isArray(course.students)) {
+          const fromCourse = course.students.find(s => (typeof s === 'string' ? s === studentId : s.id === studentId));
+          if (fromCourse && typeof fromCourse !== 'string') {
+            return fromCourse.name || fromCourse.fullName || fromCourse.email || 'Estudiante';
+          }
+        }
+      }
+    }
+    return 'Estudiante';
+  };
+
   // Sincronizar selectedPeriod cuando cambia defaultPeriod del contexto
   useEffect(() => {
     if (defaultPeriod && academicPeriods.length > 0) {
@@ -952,7 +981,7 @@ const PaymentManager = () => {
             <div key={studentId} className="bg-white rounded-lg shadow hover:shadow-md transition-shadow p-4 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-l-4 border-green-200">
               <div className="flex-grow">
                 <h3 className="font-semibold text-gray-900">Pago de módulo</h3>
-                <p className="text-sm text-gray-600">Estudiante: {student ? (student.name || student.fullName || student.email) : 'Desconocido'}</p>
+                <p className="text-sm text-gray-600">Estudiante: {getStudentName(studentId)}</p>
                 <div className="text-xs text-blue-700 font-semibold cursor-pointer hover:underline mt-1" onClick={() => handleOpenResumen(studentId)}>
                   {pagos.length} pagos de módulo - Ver resumen
                 </div>
@@ -980,7 +1009,7 @@ const PaymentManager = () => {
             <div key={key} className="bg-white rounded-lg shadow hover:shadow-md transition-shadow p-4 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-l-4 border-purple-200">
               <div className="flex-grow">
                 <h3 className="font-semibold text-gray-900">Pago de módulo (Curso)</h3>
-                <p className="text-sm text-gray-600">Estudiante: {student ? (student.name || student.fullName || student.email) : 'Desconocido'}</p>
+                <p className="text-sm text-gray-600">Estudiante: {getStudentName(grupo.studentId, grupo.courseId)}</p>
                 <p className="text-sm text-gray-600">Curso: {course ? course.nombre : 'Curso desconocido'}</p>
                 {descuentoCurso > 0 && <p className="text-xs text-green-600">Descuento: {descuentoCurso}%</p>}
                 <div className="text-xs text-purple-700 font-semibold cursor-pointer hover:underline mt-1" onClick={() => setResumenCursoData({ studentId: grupo.studentId, courseId: grupo.courseId })}>
@@ -1012,7 +1041,7 @@ const PaymentManager = () => {
                 <div className="flex-grow">
                   <h3 className="font-semibold text-gray-900 break-words">{transaction.description}</h3>
                   <p className="text-sm text-gray-600">{transaction.category}</p>
-                  {student && <div className="text-xs text-blue-700 font-semibold mt-1">Estudiante: {student.name || student.fullName || student.email}</div>}
+                  {(transaction.studentId) && <div className="text-xs text-blue-700 font-semibold mt-1">Estudiante: {getStudentName(transaction.studentId, transaction.courseId)}</div>}
                   {teacher && <div className="text-xs text-purple-700 font-semibold mt-1">Profesor: {teacher.name || teacher.fullName || teacher.email}</div>}
                 </div>
               </div>
@@ -1261,7 +1290,7 @@ const PaymentManager = () => {
           <div className="bg-white rounded-lg shadow-lg p-6 sm:p-8 max-w-2xl w-full relative border-t-4 border-blue-600 max-h-[90vh] overflow-y-auto">
             <button className="absolute top-4 right-4 text-gray-500 hover:text-gray-700" onClick={() => setResumenEstudianteId(null)}>&times;</button>
             <h3 className="text-xl font-bold mb-4 text-blue-700">Resumen de Pagos de Módulo</h3>
-            <p className="mb-4 font-semibold">Estudiante: {students.find(s => s.id === resumenEstudianteId)?.name || 'Desconocido'}</p>
+            <p className="mb-4 font-semibold">Estudiante: {getStudentName(resumenEstudianteId)}</p>
             <div className="overflow-x-auto">
               <table className="w-full text-sm mb-4 min-w-[500px]">
                 <thead>
@@ -1311,7 +1340,7 @@ const PaymentManager = () => {
             <div className="bg-white rounded-lg shadow-lg p-6 sm:p-8 max-w-2xl w-full relative border-t-4 border-purple-600 max-h-[90vh] overflow-y-auto">
               <button className="absolute top-4 right-4 text-gray-500 hover:text-gray-700" onClick={() => setResumenCursoData(null)}>&times;</button>
               <h3 className="text-xl font-bold mb-2 text-purple-700">Resumen de Pagos (Curso)</h3>
-              <p className="mb-1 font-semibold">Estudiante: {students.find(s => s.id === resumenCursoData.studentId)?.name || 'Desconocido'}</p>
+              <p className="mb-1 font-semibold">Estudiante: {getStudentName(resumenCursoData.studentId, resumenCursoData.courseId)}</p>
               <p className="mb-2 font-semibold">Curso: {course ? course.nombre : 'Desconocido'}</p>
               {descuentoCurso > 0 && (
                 <p className="text-xs text-green-600 mb-2">Descuento aplicado en matrícula del curso: {descuentoCurso}%</p>
@@ -1389,7 +1418,7 @@ const PaymentManager = () => {
             <div ref={printAreaRef} className="overflow-x-auto p-2">
               <PaymentReceipt
                 pago={pagoParaRecibo}
-                estudiante={students.find(s => s.id === pagoParaRecibo.studentId)}
+                estudiante={students.find(s => s.id === pagoParaRecibo.studentId) || { id: pagoParaRecibo.studentId, name: getStudentName(pagoParaRecibo.studentId, pagoParaRecibo.courseId) }}
                 reciboNumero={reciboNumero}
               />
             </div>
