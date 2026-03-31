@@ -4,6 +4,7 @@ import { db } from '../../firebaseConfig';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
+import { saveActivity } from '../../utils/activityLogger';
 
 const TeachersTable = () => {
   const [teachers, setTeachers] = useState([]);
@@ -64,7 +65,16 @@ const TeachersTable = () => {
 
   const confirmDelete = async () => {
     try {
+      const targetTeacher = teachers.find(t => t.id === teacherToDelete);
       await deleteDoc(doc(db, 'teachers', teacherToDelete));
+      
+      saveActivity(db, currentUser, {
+        action: 'ELIMINACIÓN',
+        entityType: 'DOCENTE',
+        entityName: `${targetTeacher?.name} ${targetTeacher?.lastName || ''}`,
+        details: `Docente eliminado (Email: ${targetTeacher?.email || 'N/A'})`
+      });
+
       setTeachers(teachers.filter(teacher => teacher.id !== teacherToDelete));
       setShowDeleteModal(false);
       setTeacherToDelete(null);
@@ -100,6 +110,12 @@ const TeachersTable = () => {
             await setDoc(doc(db, 'careers', careerDoc.id, 'modules', moduleDoc.id), {
               ...moduleData,
               estado: newStatus
+            });
+            saveActivity(db, currentUser, {
+              action: 'EDICIÓN',
+              entityType: 'MODULO',
+              entityName: moduleName,
+              details: `Estado actualizado a ${newStatus} para prof. ${teacherName}`
             });
           }
         }

@@ -5,6 +5,7 @@ import { db } from '../../firebaseConfig';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { calculatePeriod } from '../../utils/periodHelper';
+import { saveActivity } from '../../utils/activityLogger';
 
 const StudentForm = () => {
   const { id } = useParams();
@@ -127,6 +128,12 @@ const StudentForm = () => {
       if (id) {
         await updateDoc(doc(db, 'students', id), studentData);
         studentId = id;
+        saveActivity(db, currentUser, {
+          action: 'EDICIÓN',
+          entityType: 'ESTUDIANTE',
+          entityName: `${student.name} ${student.lastName || ''}`,
+          details: `Perfil de estudiante actualizado (Carrera: ${studentData.career || 'N/A'})`
+        });
         toast.success('Estudiante actualizado correctamente');
       } else {
         const studentsCol = collection(db, 'students');
@@ -136,6 +143,12 @@ const StudentForm = () => {
           createdAt: now.toISOString()
         });
         studentId = newDocRef.id;
+        saveActivity(db, currentUser, {
+          action: 'CREACIÓN',
+          entityType: 'ESTUDIANTE',
+          entityName: `${student.name} ${student.lastName || ''}`,
+          details: `Nuevo estudiante inscrito en ${studentData.career || 'Cursos'}`
+        });
         toast.success('Estudiante creado correctamente');
       }
 

@@ -5,6 +5,7 @@ import { db } from '../../firebaseConfig';
 import { useAuth } from '../../context/AuthContext';
 import { DefaultPeriodContext } from '../../context/DefaultPeriodContext';
 import { toast } from 'react-toastify';
+import { saveActivity } from '../../utils/activityLogger';
 
 const ROLES = [
   { value: 'admin', label: 'Administrador' },
@@ -97,6 +98,13 @@ const UserManagement = () => {
   const handleRoleChange = async (userId, newRole) => {
     try {
       await updateDoc(doc(db, 'users', userId), { role: newRole });
+      const targetUser = users.find(u => u.id === userId);
+      saveActivity(db, currentUser, {
+        action: 'EDICIÓN',
+        entityType: 'USUARIO',
+        entityName: targetUser?.email || userId,
+        details: `Cambio de rol: ${targetUser?.role} -> ${newRole}`
+      });
       setUsers(users.map(user => user.id === userId ? { ...user, role: newRole } : user));
       toast.success('Rol actualizado correctamente');
     } catch (error) {
@@ -111,7 +119,14 @@ const UserManagement = () => {
 
   const confirmDelete = async () => {
     try {
+      const targetUser = users.find(u => u.id === userToDelete);
       await deleteDoc(doc(db, 'users', userToDelete));
+      saveActivity(db, currentUser, {
+        action: 'ELIMINACIÓN',
+        entityType: 'USUARIO',
+        entityName: targetUser?.email || userToDelete,
+        details: `Usuario eliminado (${targetUser?.name} ${targetUser?.lastName})`
+      });
       setUsers(users.filter(user => user.id !== userToDelete));
       toast.success('Usuario eliminado correctamente');
     } catch (error) {
@@ -197,6 +212,12 @@ const UserManagement = () => {
         };
         
         await updateDoc(doc(db, 'users', editId), updateData);
+        saveActivity(db, currentUser, {
+          action: 'EDICIÓN',
+          entityType: 'USUARIO',
+          entityName: form.email,
+          details: `Datos actualizados: ${form.name} ${form.lastName}`
+        });
         setUsers(users.map(u => u.id === editId ? { ...u, ...updateData } : u));
         toast.success('Usuario actualizado correctamente');
         handleCloseModal();
@@ -241,6 +262,13 @@ const UserManagement = () => {
           role: form.role,
           createdAt: new Date(),
           status: 'active'
+        });
+
+        saveActivity(db, currentUser, {
+          action: 'CREACIÓN',
+          entityType: 'USUARIO',
+          entityName: form.email,
+          details: `Nuevo usuario creado con rol: ${form.role}`
         });
 
         // 3. Volver a loguear como el usuario original (admin) para mantener la sesión

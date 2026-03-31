@@ -7,6 +7,7 @@ import PaymentReceipt from './PaymentReceipt';
 import Select from 'react-select';
 import { useAuth } from '../../context/AuthContext';
 import { DefaultPeriodContext } from '../../context/DefaultPeriodContext';
+import { saveActivity } from '../../utils/activityLogger';
 
 const categoryOptions = [
   'Matrícula',
@@ -166,6 +167,12 @@ const PaymentManager = () => {
         ...prevPrices,
         [priceId]: price
       }));
+      saveActivity(db, currentUser, {
+        action: 'EDICIÓN',
+        entityType: 'FINANZAS',
+        entityName: `Precio Semestre ${selectedSemester}`,
+        details: `Valor actualizado a ${price} para el período ${selectedPeriod}`
+      });
     } catch (error) {
       toast.error("Error al guardar el valor del semestre.");
       console.error("Error saving semester price: ", error);
@@ -518,6 +525,12 @@ const PaymentManager = () => {
         date: fechaSeleccionada,
         updated_at: fechaSeleccionada,
       });
+      saveActivity(db, currentUser, {
+        action: 'EDICIÓN',
+        entityType: 'FINANZAS',
+        entityName: dataToSave.category,
+        details: `Transacción editada: ${formatCurrency(dataToSave.amount)} - ${dataToSave.description}`
+      });
       toast.success('Transacción actualizada correctamente');
     } else {
       await addDoc(collection(db, 'payments'), {
@@ -525,6 +538,12 @@ const PaymentManager = () => {
         date: fechaSeleccionada,
         created_at: fechaSeleccionada,
         updated_at: fechaSeleccionada,
+      });
+      saveActivity(db, currentUser, {
+        action: 'CREACIÓN',
+        entityType: 'FINANZAS',
+        entityName: dataToSave.category,
+        details: `Nuevo registro: ${formatCurrency(dataToSave.amount)} - ${dataToSave.description}`
       });
       toast.success('Transacción registrada correctamente');
     }
@@ -616,7 +635,16 @@ const PaymentManager = () => {
 
   const confirmDelete = async () => {
     try {
+      const target = transactions.find(t => t.id === transactionToDelete);
       await deleteDoc(doc(db, 'payments', transactionToDelete));
+      
+      saveActivity(db, currentUser, {
+        action: 'ELIMINACIÓN',
+        entityType: 'FINANZAS',
+        entityName: target?.category || 'Transacción',
+        details: `Registro eliminado: ${formatCurrency(target?.amount || 0)} - ${target?.description}`
+      });
+
       await fetchTransactions();
       toast.success('Transacción eliminada correctamente');
       setShowDeleteModal(false);
@@ -641,7 +669,16 @@ const PaymentManager = () => {
 
   const confirmDeletePagoModulo = async () => {
     try {
+      const target = transactions.find(t => t.id === transactionToDelete);
       await deleteDoc(doc(db, 'payments', transactionToDelete));
+      
+      saveActivity(db, currentUser, {
+        action: 'ELIMINACIÓN',
+        entityType: 'FINANZAS',
+        entityName: 'Pago de Módulo',
+        details: `Eliminación de pago (${formatCurrency(target?.amount || 0)}) desde el resumen`
+      });
+
       await fetchTransactions();
       toast.success('Pago de módulo eliminado correctamente');
       setShowDeleteModal(false);

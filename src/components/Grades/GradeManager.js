@@ -6,6 +6,7 @@ import GradeForm from './GradeForm';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { DefaultPeriodContext } from '../../context/DefaultPeriodContext';
+import { saveActivity } from '../../utils/activityLogger';
 
 // Opciones de grupo hardcodeadas para consistencia
 const GROUP_OPTIONS = [
@@ -329,7 +330,16 @@ const GradeManager = () => {
 
   const confirmDelete = async () => {
     try {
+      const target = grades.find(g => g.id === gradeToDelete);
       await deleteDoc(doc(db, 'grades', gradeToDelete));
+      
+      saveActivity(db, currentUser, {
+        action: 'ELIMINACIÓN',
+        entityType: 'ACADEMICO',
+        entityName: `Nota: ${target?.studentName}`,
+        details: `Calificación eliminada de ${target?.moduleName} (${target?.activityName}: ${target?.grade})`
+      });
+
       setGrades(grades.filter(g => g.id !== gradeToDelete));
       toast.success('Nota eliminada correctamente');
     } catch (error) {
@@ -587,11 +597,23 @@ const GradeManager = () => {
             try {
               if (isEditing) {
                 await updateDoc(doc(db, 'grades', gradeData.id), gradeData);
+                saveActivity(db, currentUser, {
+                  action: 'EDICIÓN',
+                  entityType: 'ACADEMICO',
+                  entityName: `Nota: ${gradeData.studentName}`,
+                  details: `Calificación actualizada en ${gradeData.moduleName} (${gradeData.activityName}: ${gradeData.grade})`
+                });
                 setGrades(grades.map(g => g.id === gradeData.id ? gradeData : g));
                 toast.success('Nota actualizada correctamente');
               } else {
                 const newGradeRef = doc(collection(db, 'grades'), gradeData.id);
                 await setDoc(newGradeRef, gradeData);
+                saveActivity(db, currentUser, {
+                  action: 'CREACIÓN',
+                  entityType: 'ACADEMICO',
+                  entityName: `Nota: ${gradeData.studentName}`,
+                  details: `Nueva calificación cargada en ${gradeData.moduleName} (${gradeData.activityName}: ${gradeData.grade})`
+                });
                 setGrades(prevGrades => [gradeData, ...prevGrades]);
                 toast.success('Nota creada correctamente');
               }

@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import { collection, getDocs, doc, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 import { toast } from 'react-toastify';
+import { saveActivity } from '../../utils/activityLogger';
 import { Dialog } from '@headlessui/react';
 
 const GeneralModuleManager = () => {
+  const { currentUser } = useAuth();
   const [generalModules, setGeneralModules] = useState([]);
   const [careers, setCareers] = useState([]);
   const [teachers, setTeachers] = useState([]);
@@ -119,6 +122,12 @@ const GeneralModuleManager = () => {
       if (editingModule) {
         // Actualizar módulo existente
         await updateDoc(doc(db, 'generalModules', editingModule.id), moduleData);
+        saveActivity(db, currentUser, {
+          action: 'EDICIÓN',
+          entityType: 'ESTRUCTURA',
+          entityName: moduleData.nombre,
+          details: `Módulo general actualizado: ${moduleData.descripcion}`
+        });
         setGeneralModules(generalModules.map(m => 
           m.id === editingModule.id ? { id: editingModule.id, ...moduleData } : m
         ));
@@ -127,6 +136,12 @@ const GeneralModuleManager = () => {
         // Crear nuevo módulo
         const newId = doc(collection(db, 'generalModules')).id;
         await setDoc(doc(db, 'generalModules', newId), moduleData);
+        saveActivity(db, currentUser, {
+          action: 'CREACIÓN',
+          entityType: 'ESTRUCTURA',
+          entityName: moduleData.nombre,
+          details: `Nuevo módulo general creado: ${moduleData.descripcion}`
+        });
         setGeneralModules([...generalModules, { id: newId, ...moduleData }]);
         toast.success('Módulo general creado correctamente');
       }
@@ -145,7 +160,14 @@ const GeneralModuleManager = () => {
 
   const confirmDelete = async () => {
     try {
+      const target = moduleToDelete;
       await deleteDoc(doc(db, 'generalModules', moduleToDelete.id));
+      saveActivity(db, currentUser, {
+        action: 'ELIMINACIÓN',
+        entityType: 'ESTRUCTURA',
+        entityName: target?.nombre || 'Módulo General',
+        details: `Módulo general eliminado permanentemente`
+      });
       setGeneralModules(generalModules.filter(m => m.id !== moduleToDelete.id));
       toast.success('Módulo general eliminado correctamente');
       setShowDeleteModal(false);

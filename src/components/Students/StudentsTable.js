@@ -8,6 +8,7 @@ import OutgoingMailIcon from '@mui/icons-material/OutgoingMail';
 import { toast } from 'react-toastify';
 import { Dialog } from '@headlessui/react';
 import { getUniquePeriods, calculatePeriod } from '../../utils/periodHelper';
+import { saveActivity } from '../../utils/activityLogger';
 
 const StudentsTable = () => {
   const [students, setStudents] = useState([]);
@@ -51,6 +52,15 @@ const StudentsTable = () => {
       const studentData = studentSnap.data();
       const updatedModulos = studentData.modulosAsignados.filter(m => m.id !== moduleId);
       await updateDoc(studentRef, { modulosAsignados: updatedModulos });
+      
+      const moduleName = studentData.modulosAsignados.find(m => m.id === moduleId)?.nombre || moduleId;
+      saveActivity(db, currentUser, {
+        action: 'ASIGNACIÓN',
+        entityType: 'ESTUDIANTE',
+        entityName: `${studentData.name} ${studentData.lastName || ''}`,
+        details: `Módulo desvinculado: ${moduleName}`
+      });
+
       setSelectedStudent(prev => ({ ...prev, modulosAsignados: updatedModulos }));
       toast.success('Módulo desvinculado');
     }
@@ -65,6 +75,15 @@ const StudentsTable = () => {
         m.id === moduleId ? { ...m, estado: newStatus } : m
       );
       await updateDoc(studentRef, { modulosAsignados: updatedModulos });
+
+      const moduleName = studentData.modulosAsignados.find(m => m.id === moduleId)?.nombre || moduleId;
+      saveActivity(db, currentUser, {
+        action: 'EDICIÓN',
+        entityType: 'ESTUDIANTE',
+        entityName: `${studentData.name} ${studentData.lastName || ''}`,
+        details: `Estado de módulo ${moduleName} cambiado a: ${newStatus}`
+      });
+
       setSelectedStudent(prev => ({ ...prev, modulosAsignados: updatedModulos }));
       toast.success('Estado del módulo actualizado');
     }
@@ -242,7 +261,16 @@ const StudentsTable = () => {
 
   const confirmDelete = async () => {
     try {
+      const targetStudent = students.find(s => s.id === studentToDelete);
       await deleteDoc(doc(db, 'students', studentToDelete));
+      
+      saveActivity(db, currentUser, {
+        action: 'ELIMINACIÓN',
+        entityType: 'ESTUDIANTE',
+        entityName: `${targetStudent?.name} ${targetStudent?.lastName || ''}`,
+        details: `Estudiante eliminado (DNI: ${targetStudent?.dni || 'N/A'})`
+      });
+
       setStudents(students.filter(student => student.id !== studentToDelete));
       setShowDeleteModal(false);
       setStudentToDelete(null);
@@ -274,6 +302,13 @@ const StudentsTable = () => {
         modulosAsignados.push({ id: assignModule, estado: assignStatus });
       }
       await updateDoc(studentRef, { modulosAsignados });
+      
+      saveActivity(db, currentUser, {
+        action: 'ASIGNACIÓN',
+        entityType: 'ESTUDIANTE',
+        entityName: `${studentSnap.data().name} ${studentSnap.data().lastName || ''}`,
+        details: `Módulo asignado: ${assignModule} con estado: ${assignStatus}`
+      });
     }
     toast.success('Módulo asignado/actualizado correctamente');
     setShowAssignModal(false);

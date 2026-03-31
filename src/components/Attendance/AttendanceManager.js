@@ -7,6 +7,7 @@ import Modal from 'react-modal';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { DefaultPeriodContext } from '../../context/DefaultPeriodContext';
+import { saveActivity } from '../../utils/activityLogger';
 
 const months = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -538,6 +539,12 @@ const AttendanceManager = () => {
           }
         }
       }
+      saveActivity(db, currentUser, {
+        action: 'CREACIÓN',
+        entityType: 'ASISTENCIA',
+        entityName: moduleName,
+        details: `Asistencia registrada/actualizada para ${studentsWithAttendance.length} estudiantes (${periodForModal})`
+      });
       toast.success('Asistencia guardada correctamente');
       fetchAttendanceRecords(); // Recargar la tabla principal
     } catch (e) {
@@ -550,7 +557,16 @@ const AttendanceManager = () => {
   const handleDelete = async () => {
     if (!deleteRecord) return;
     try {
+      const target = deleteRecord;
       await deleteDoc(doc(db, 'attendance', deleteRecord.id));
+      
+      saveActivity(db, currentUser, {
+        action: 'ELIMINACIÓN',
+        entityType: 'ASISTENCIA',
+        entityName: target?.moduleName || 'Asistencia',
+        details: `Registro eliminado de ${target?.studentName} (${target?.period})`
+      });
+
       setAttendanceRecords(prev => prev.filter(r => r.id !== deleteRecord.id));
       setShowDeleteModal(false);
       setDeleteRecord(null);
@@ -572,11 +588,23 @@ const AttendanceManager = () => {
 
       if (Object.keys(newAttendance).length === 0) {
         await deleteDoc(docRef);
+        saveActivity(db, currentUser, {
+          action: 'ELIMINACIÓN',
+          entityType: 'ASISTENCIA',
+          entityName: detailRecord.moduleName,
+          details: `Eliminación de última fecha (${dateToDelete}) - Registro completo borrado`
+        });
         toast.success('Registro de asistencia completo eliminado.');
         setAttendanceRecords(prev => prev.filter(r => r.id !== id));
         setShowDetailModal(false);
       } else {
         await setDoc(docRef, { attendance: newAttendance }, { merge: true });
+        saveActivity(db, currentUser, {
+          action: 'ELIMINACIÓN',
+          entityType: 'ASISTENCIA',
+          entityName: detailRecord.moduleName,
+          details: `Fecha individual eliminada: ${dateToDelete} para ${detailRecord.studentName}`
+        });
         toast.success(`Asistencia del ${dateToDelete} eliminada.`);
         
         const updatedDetailRecord = { ...detailRecord, attendance: newAttendance };

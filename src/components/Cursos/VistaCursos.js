@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 import { toast } from 'react-toastify';
+import { saveActivity } from '../../utils/activityLogger';
 
 // Componente minimalista y responsivo para gestionar cursos cortos
 // Colección Firestore: courses
@@ -10,6 +12,7 @@ import { toast } from 'react-toastify';
 //  - Campo opcional en curso: students: [{ id, name }]
 
 const VistaCursos = () => {
+  const { currentUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('cursos');
   const [cursos, setCursos] = useState([]);
@@ -126,9 +129,21 @@ const VistaCursos = () => {
     try {
       if (cursoSeleccionado) {
         await updateDoc(doc(db, 'courses', cursoSeleccionado.id), formCurso);
+        saveActivity(db, currentUser, {
+          action: 'EDICIÓN',
+          entityType: 'ESTRUCTURA',
+          entityName: formCurso.nombre,
+          details: `Datos del curso corto actualizados: ${formCurso.descripcion}`
+        });
         toast.success('Curso actualizado');
       } else {
         await addDoc(collection(db, 'courses'), { ...formCurso, createdAt: new Date().toISOString() });
+        saveActivity(db, currentUser, {
+          action: 'CREACIÓN',
+          entityType: 'ESTRUCTURA',
+          entityName: formCurso.nombre,
+          details: `Nuevo curso corto registrado: ${formCurso.descripcion}`
+        });
         toast.success('Curso creado');
       }
       setModalCurso(false);
@@ -155,7 +170,14 @@ const VistaCursos = () => {
   const eliminarCurso = async (cursoId) => {
     if (!window.confirm('¿Eliminar curso?')) return;
     try {
+      const target = cursos.find(c => c.id === cursoId);
       await deleteDoc(doc(db, 'courses', cursoId));
+      saveActivity(db, currentUser, {
+        action: 'ELIMINACIÓN',
+        entityType: 'ESTRUCTURA',
+        entityName: target?.nombre || 'Curso',
+        details: `Curso corto eliminado permanentemente`
+      });
       toast.success('Curso eliminado');
       setTimeout(fetchCursos, 300);
     } catch (e) {
@@ -176,9 +198,21 @@ const VistaCursos = () => {
     try {
       if (editandoModulo) {
         await updateDoc(doc(db, 'courses', cursoSeleccionado.id, 'modules', editandoModulo), formModulo);
+        saveActivity(db, currentUser, {
+          action: 'EDICIÓN',
+          entityType: 'ESTRUCTURA',
+          entityName: formModulo.nombre,
+          details: `Módulo actualizado en curso corto: ${cursoSeleccionado.nombre}`
+        });
         toast.success('Módulo actualizado');
       } else {
         await addDoc(collection(db, 'courses', cursoSeleccionado.id, 'modules'), formModulo);
+        saveActivity(db, currentUser, {
+          action: 'CREACIÓN',
+          entityType: 'ESTRUCTURA',
+          entityName: formModulo.nombre,
+          details: `Nuevo módulo creado en curso: ${cursoSeleccionado.nombre}`
+        });
         toast.success('Módulo creado');
       }
       setFormModulo({ nombre: '', precio: 0, horas: 0, profesorId: '', profesorNombre: '' });
@@ -195,7 +229,14 @@ const VistaCursos = () => {
     if (!cursoSeleccionado) return;
     if (!window.confirm('¿Eliminar módulo del curso?')) return;
     try {
+      const target = cursoSeleccionado.modules.find(m => m.id === moduloId);
       await deleteDoc(doc(db, 'courses', cursoSeleccionado.id, 'modules', moduloId));
+      saveActivity(db, currentUser, {
+        action: 'ELIMINACIÓN',
+        entityType: 'ESTRUCTURA',
+        entityName: target?.nombre || 'Módulo',
+        details: `Módulo eliminado del curso corto ${cursoSeleccionado.nombre}`
+      });
       toast.success('Módulo eliminado');
       setTimeout(() => refreshCursoSeleccionado(cursoSeleccionado.id), 300);
     } catch (e) {
@@ -268,6 +309,12 @@ const VistaCursos = () => {
       for (const sid of toRemove) {
         await deleteDoc(doc(db, 'courses', cursoSeleccionado.id, 'modules', moduloParaAsignar.id, 'students', sid));
       }
+      saveActivity(db, currentUser, {
+        action: 'EDICIÓN',
+        entityType: 'ESTRUCTURA',
+        entityName: moduloParaAsignar.nombre,
+        details: `Asignación de estudiantes al módulo actualizada (${moduleAssignedIds.length} estudiantes)`
+      });
       setModuleAssignedIdsOrig(moduleAssignedIds);
       toast.success('Asignaciones de módulo actualizadas');
       setModalAsignarModulo(false);
@@ -317,6 +364,12 @@ const VistaCursos = () => {
         }
       }
       await Promise.all(updates);
+      saveActivity(db, currentUser, {
+        action: 'EDICIÓN',
+        entityType: 'ESTRUCTURA',
+        entityName: cursoSeleccionado.nombre,
+        details: `Asignación de estudiantes al curso actualizada (${asignaciones.length} estudiantes)`
+      });
       toast.success('Asignaciones guardadas');
       setModalAsignar(false);
     } catch (e) {

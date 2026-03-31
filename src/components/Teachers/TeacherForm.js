@@ -4,6 +4,7 @@ import { doc, getDoc, setDoc, updateDoc, collection, getDocs } from 'firebase/fi
 import { db } from '../../firebaseConfig';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
+import { saveActivity } from '../../utils/activityLogger';
 
 const TeacherForm = () => {
   const { id } = useParams();
@@ -88,11 +89,23 @@ const TeacherForm = () => {
 
       if (id) {
         await updateDoc(doc(db, 'teachers', id), teacherData);
+        saveActivity(db, currentUser, {
+          action: 'EDICIÓN',
+          entityType: 'DOCENTE',
+          entityName: `${teacher.name} ${teacher.lastName || ''}`,
+          details: `Datos del docente actualizados (${teacher.specialty})`
+        });
         toast.success('Profesor actualizado correctamente');
       } else {
         await setDoc(doc(collection(db, 'teachers')), {
           ...teacherData,
           createdAt: new Date().toISOString()
+        });
+        saveActivity(db, currentUser, {
+          action: 'CREACIÓN',
+          entityType: 'DOCENTE',
+          entityName: `${teacher.name} ${teacher.lastName || ''}`,
+          details: `Nuevo docente registrado: ${teacher.specialty}`
         });
         toast.success('Profesor creado correctamente');
       }

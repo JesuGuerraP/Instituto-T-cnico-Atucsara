@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import { DegreeHat, Edit, Add, Book } from '@icon-park/react';
 import { FaTrash } from 'react-icons/fa';
 import { collection, getDocs, addDoc, updateDoc, doc, query, where, deleteDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 import { toast, ToastContainer } from 'react-toastify';
+import { saveActivity } from '../../utils/activityLogger';
 import 'react-toastify/dist/ReactToastify.css';
 
 const VistaCarreras = () => {
+  const { currentUser } = useAuth();
   const [tab, setTab] = useState('carreras');
   const [carreraSeleccionada, setCarreraSeleccionada] = useState(null);
   const [modalCarrera, setModalCarrera] = useState(false);
@@ -134,6 +137,12 @@ const VistaCarreras = () => {
         duracion: formCarrera.duracion,
         estado: 'Activa',
       });
+      saveActivity(db, currentUser, {
+        action: 'CREACIÓN',
+        entityType: 'ESTRUCTURA',
+        entityName: formCarrera.nombre,
+        details: `Nueva carrera técnica creada: ${formCarrera.descripcion}`
+      });
       toast.success('Carrera creada correctamente');
       setFormCarrera({ nombre: '', descripcion: '', duracion: 6 });
       setModalCarrera(false);
@@ -167,6 +176,12 @@ const VistaCarreras = () => {
         descripcion: formCarrera.descripcion,
         duracion: formCarrera.duracion,
       });
+      saveActivity(db, currentUser, {
+        action: 'EDICIÓN',
+        entityType: 'ESTRUCTURA',
+        entityName: formCarrera.nombre,
+        details: `Datos de la carrera actualizados`
+      });
       toast.success('Carrera actualizada correctamente');
       setModalCarrera(false);
       fetchCarreras();
@@ -182,7 +197,14 @@ const VistaCarreras = () => {
   // Eliminar carrera
   const eliminarCarrera = async () => {
     if (carreraAEliminar) {
+      const target = carreras.find(c => c.id === carreraAEliminar);
       await deleteDoc(doc(db, 'careers', carreraAEliminar));
+      saveActivity(db, currentUser, {
+        action: 'ELIMINACIÓN',
+        entityType: 'ESTRUCTURA',
+        entityName: target?.nombre || 'Carrera',
+        details: `Carrera técnica eliminada permanentemente`
+      });
       toast.success('Carrera eliminada correctamente');
       setModalConfirmacion(false);
       setCarreraAEliminar(null);
@@ -214,6 +236,12 @@ const VistaCarreras = () => {
           descripcion: formModulo.descripcion,
           semestre: formModulo.semestre,
         });
+        saveActivity(db, currentUser, {
+          action: 'EDICIÓN',
+          entityType: 'ESTRUCTURA',
+          entityName: formModulo.nombre,
+          details: `Módulo actualizado en carrera: ${carreraSeleccionada.nombre}`
+        });
         toast.success('Módulo actualizado correctamente');
       } else {
         // Crear
@@ -223,6 +251,12 @@ const VistaCarreras = () => {
           sabadosSemana: formModulo.sabadosSemana,
           descripcion: formModulo.descripcion,
           semestre: formModulo.semestre,
+        });
+        saveActivity(db, currentUser, {
+          action: 'CREACIÓN',
+          entityType: 'ESTRUCTURA',
+          entityName: formModulo.nombre,
+          details: `Nuevo módulo creado en carrera: ${carreraSeleccionada.nombre} (Semestre ${formModulo.semestre})`
         });
         toast.success('Módulo creado correctamente');
       }
@@ -252,6 +286,12 @@ const VistaCarreras = () => {
     try {
       const carreraRef = doc(db, 'careers', carreraSeleccionada.id);
       await updateDoc(carreraRef, { seminarios: seminariosEdit });
+      saveActivity(db, currentUser, {
+        action: 'EDICIÓN',
+        entityType: 'ESTRUCTURA',
+        entityName: `Seminarios: ${carreraSeleccionada.nombre}`,
+        details: `Configuración de seminarios obligatorios actualizada`
+      });
       toast.success('Seminarios actualizados');
       setModalSeminarios(false);
       setTimeout(() => {
@@ -272,7 +312,14 @@ const VistaCarreras = () => {
   // Eliminar módulo
   const eliminarModulo = async () => {
     if (moduloAEliminar) {
+      const target = carreraSeleccionada.modulos.find(m => m.id === moduloAEliminar);
       await deleteDoc(doc(db, 'careers', carreraSeleccionada.id, 'modules', moduloAEliminar));
+      saveActivity(db, currentUser, {
+        action: 'ELIMINACIÓN',
+        entityType: 'ESTRUCTURA',
+        entityName: target?.nombre || 'Módulo',
+        details: `Módulo eliminado de la carrera ${carreraSeleccionada.nombre}`
+      });
       toast.success('Módulo eliminado correctamente');
       setModalConfirmacionModulo(false);
       setModuloAEliminar(null);
