@@ -4,7 +4,8 @@ import { auth } from '../../firebaseConfig';
 import { signOut } from 'firebase/auth';
 import { AuthContext } from '../../context/AuthContext';
 import Modal from 'react-modal';
-import { Home, People, Book, Calendar, DegreeHat, User, ChartHistogram, SettingTwo, Logout } from '@icon-park/react';
+import { Home, People, Book, Calendar, DegreeHat, User, ChartHistogram, SettingTwo, Logout, Wallet, Dashboard } from '@icon-park/react';
+import { useLocation } from 'react-router-dom';
 import './DashboardLayout.css';
 
 const DashboardLayout = () => {
@@ -12,6 +13,7 @@ const DashboardLayout = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [careersExpanded, setCareersExpanded] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const { currentUser } = useContext(AuthContext); // Usar currentUser
 
   const handleLogout = async () => {
@@ -61,12 +63,14 @@ const DashboardLayout = () => {
         {/* Navegación */}
         <nav className="mt-4 flex-1">
           <ul>
-            <li>
-              <Link to="/dashboard" className="flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition group" onClick={() => setSidebarOpen(false)}>
-                <span className={`mr-3 ${iconColor}`}><Home theme="outline" size="22" /></span>
-                Mi Panel
-              </Link>
-            </li>
+            {currentUser?.role !== 'student' && (
+              <li>
+                <Link to="/dashboard" className={`flex items-center px-6 py-3 transition group ${location.pathname === '/dashboard' ? activeLink : 'text-gray-700 hover:bg-blue-50 hover:text-blue-900'}`} onClick={() => setSidebarOpen(false)}>
+                  <span className={`mr-3 ${location.pathname === '/dashboard' ? 'text-blue-900' : iconColor}`}><Home theme={location.pathname === '/dashboard' ? "filled" : "outline"} size="22" /></span>
+                  Mi Panel
+                </Link>
+              </li>
+            )}
             {/* Solo mostrar el resto si el usuario NO es estudiante */}
             {currentUser?.role !== 'student' && (
               <>
@@ -168,12 +172,32 @@ const DashboardLayout = () => {
             )}
             {/* Configuración para estudiantes */}
             {currentUser?.role === 'student' && (
-              <li>
-                <Link to="/dashboard/settings" className="flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition group" onClick={() => setSidebarOpen(false)}>
-                  <span className={`mr-3 ${iconColor}`}><SettingTwo theme="outline" size="22" /></span>
-                  Configuración
-                </Link>
-              </li>
+              <>
+                <li>
+                  <Link to="/dashboard" className={`flex items-center px-6 py-3 transition group ${location.pathname === '/dashboard' ? activeLink : 'text-gray-700 hover:bg-blue-50 hover:text-blue-900'}`} onClick={() => setSidebarOpen(false)}>
+                    <span className={`mr-3 ${location.pathname === '/dashboard' ? 'text-blue-900' : iconColor}`}><Dashboard theme={location.pathname === '/dashboard' ? "filled" : "outline"} size="22" /></span>
+                    Inicio
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/dashboard/academic" className={`flex items-center px-6 py-3 transition group ${location.pathname === '/dashboard/academic' ? activeLink : 'text-gray-700 hover:bg-blue-50 hover:text-blue-900'}`} onClick={() => setSidebarOpen(false)}>
+                    <span className={`mr-3 ${location.pathname === '/dashboard/academic' ? 'text-blue-900' : iconColor}`}><Book theme={location.pathname === '/dashboard/academic' ? "filled" : "outline"} size="22" /></span>
+                    Académico
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/dashboard/finance" className={`flex items-center px-6 py-3 transition group ${location.pathname === '/dashboard/finance' ? activeLink : 'text-gray-700 hover:bg-blue-50 hover:text-blue-900'}`} onClick={() => setSidebarOpen(false)}>
+                    <span className={`mr-3 ${location.pathname === '/dashboard/finance' ? 'text-blue-900' : iconColor}`}><Wallet theme={location.pathname === '/dashboard/finance' ? "filled" : "outline"} size="22" /></span>
+                    Finanzas
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/dashboard/settings" className={`flex items-center px-6 py-3 transition group ${location.pathname === '/dashboard/settings' ? activeLink : 'text-gray-700 hover:bg-blue-50 hover:text-blue-900'}`} onClick={() => setSidebarOpen(false)}>
+                    <span className={`mr-3 ${location.pathname === '/dashboard/settings' ? 'text-blue-900' : iconColor}`}><SettingTwo theme={location.pathname === '/dashboard/settings' ? "filled" : "outline"} size="22" /></span>
+                    Configuración
+                  </Link>
+                </li>
+              </>
             )}
           </ul>
         </nav>

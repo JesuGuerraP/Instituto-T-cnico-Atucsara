@@ -90,22 +90,29 @@ function App() {
           {/* Ruta pública para el reporte */}
           <Route path="/grades/report" element={<GradeReportPage />} />
 
-          {/* Rutas protegidas bajo /dashboard */}
           <Route path="/dashboard" element={
             <ProtectedRoute>
               <DashboardLayout />
             </ProtectedRoute>
-          }>            <Route index element={
+          }>
+            <Route index element={
               currentUser?.role === 'student' ? <StudentDashboard /> : 
               currentUser?.role === 'teacher' ? <TeacherDashboard /> : 
               <AdminDashboard />
             } />
+            <Route path="academic" element={
+              <ProtectedRoute roles={['student']}>
+                <StudentDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="finance" element={
+              <ProtectedRoute roles={['student']}>
+                <StudentDashboard />
+              </ProtectedRoute>
+            } />
             <Route path="settings" element={
               <ProtectedRoute>
-                {/* Usar AccountSettings si existe, si no StudentSettings */}
-                {/* import AccountSettings from './components/Dashboard/AccountSettings'; */}
-                {/* <AccountSettings /> */}
-                <StudentSettings />
+                {currentUser?.role === 'student' ? <StudentDashboard /> : <StudentSettings />}
               </ProtectedRoute>
             } />
             <Route path="students" element={

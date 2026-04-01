@@ -1,40 +1,49 @@
-import { useEffect, useState, useContext, useRef } from 'react';
+import { useEffect, useState, useContext, useRef, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import { db } from '../../firebaseConfig';
-import { getAuth, updatePassword } from 'firebase/auth';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { AuthContext } from '../../context/AuthContext';
-import Modal from 'react-modal';
-import { IdCard, Book, Calendar, Wallet, GoldMedal, Printer } from '@icon-park/react';
-import PaymentReceipt from '../Finance/PaymentReceipt'; // Asegúrate de que la ruta sea correcta
-import GradeReport from '../Grades/GradeReport';
+import { MenuUnfold } from '@icon-park/react';
+
+// New Components
+import DashboardHome from './components/DashboardHome';
+import AcademicSection from './components/AcademicSection';
+import FinanceSection from './components/FinanceSection';
+import SettingsSection from './components/SettingsSection';
+import PaymentReceipt from '../Finance/PaymentReceipt';
 
 const StudentDashboard = () => {
   const { currentUser } = useContext(AuthContext);
+  const location = useLocation();
+  const [activeSection, setActiveSection] = useState('home');
+  const [loading, setLoading] = useState(true);
+
+  // Data States
+  const [studentInfo, setStudentInfo] = useState(null);
   const [grades, setGrades] = useState([]);
   const [payments, setPayments] = useState([]);
-  const [studentInfo, setStudentInfo] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [studentAttendance, setStudentAttendance] = useState([]);
-  const [detailRecord, setDetailRecord] = useState(null);
-
-    // Estado para los módulos de la carrera
   const [careerModules, setCareerModules] = useState([]);
-  // módulos generales (misma colección que se usa en StudentsTable y otros componentes)
   const [generalModules, setGeneralModules] = useState([]);
-  // Estado para los seminarios de la carrera
   const [careerSeminarios, setCareerSeminarios] = useState([]);
   const [semesterPrices, setSemesterPrices] = useState({});
-  // Estado para mostrar todas las notas o solo las recientes
-  const [verTodasLasNotas, setVerTodasLasNotas] = useState(false);
+  const [openSemesters, setOpenSemesters] = useState({});
 
-  // helpers para buscar módulos en específicas o generales y determinar semestre
-  const findModule = (id) => {
+  // Finance Receipt States
+  const [showFinanceReceiptModal, setShowFinanceReceiptModal] = useState(false);
+  const [selectedFinanceReceipt, setSelectedFinanceReceipt] = useState(null);
+  const financePrintAreaRef = useRef();
+
+  // Helpers
+  const findModule = useCallback((id) => {
     return careerModules.find(m => m.id === id) || generalModules.find(m => m.id === id);
-  };
-  const findModuleByName = (name) => {
+  }, [careerModules, generalModules]);
+
+  const findModuleByName = useCallback((name) => {
     return careerModules.find(m => m.nombre === name) || generalModules.find(m => m.nombre === name);
-  };
-  const getModuleSemester = (module) => {
+  }, [careerModules, generalModules]);
+
+  const getModuleSemester = useCallback((module) => {
     if (!module) return 'General';
     if (module.semestre || module.semester) return module.semestre || module.semester;
     if (Array.isArray(module.semestres) && module.semestres.length > 0) return module.semestres[0];
@@ -43,16 +52,19 @@ const StudentDashboard = () => {
       if (entry) return entry.semester;
     }
     return 'General';
+  }, [studentInfo]);
+
+  const toggleSemester = (semester) => {
+    setOpenSemesters(prev => ({ ...prev, [semester]: !prev[semester] }));
   };
 
-  // --- ESTADO Y FUNCIONES PARA IMPRESIÓN DE RECIBO ---
-  const [showFinanceReceiptModal, setShowFinanceReceiptModal] = useState(false);
-  const [selectedFinanceReceipt, setSelectedFinanceReceipt] = useState(null);
-  const financePrintAreaRef = useRef();
+  const formatCOP = (v) => v?.toLocaleString('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 });
+
   const handlePrintFinanceReceipt = (pago) => {
     setSelectedFinanceReceipt(pago);
     setShowFinanceReceiptModal(true);
   };
+
   const handlePrintFinanceModal = () => {
     if (financePrintAreaRef.current) {
       const printContents = financePrintAreaRef.current.innerHTML;
@@ -64,898 +76,272 @@ const StudentDashboard = () => {
     }
   };
 
-  // Simulación de horario, asistencia, materias y logros
-  const schedule = [
-    { day: 'Lunes', time: '08:00 - 10:00', subject: 'Programación I', teacher: 'María García', room: 'Lab 1' },
-    { day: 'Lunes', time: '10:30 - 12:30', subject: 'Matemáticas', teacher: 'Carlos López', room: 'Aula 201' },
-    { day: 'Martes', time: '08:00 - 10:00', subject: 'Bases de Datos', teacher: 'María García', room: 'Lab 2' },
-    { day: 'Martes', time: '10:30 - 12:30', subject: 'Inglés Técnico', teacher: 'Ana Rodríguez', room: 'Aula 105' },
-    { day: 'Miércoles', time: '08:00 - 10:00', subject: 'Programación I', teacher: 'María García', room: 'Lab 1' },
-  ];
-  const attendance = 92; // %
-  const subjectsCount = 4;
-  const achievementsCount = 3;
-  const months = [
-    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
-  ];
-
   useEffect(() => {
     const fetchData = async () => {
       if (!currentUser) return;
-      // Buscar info del estudiante (de StudentsTable)
-      const studentsSnap = await getDocs(query(collection(db, 'students'), where('email', '==', currentUser.email)));
-      let student = null;
-      studentsSnap.forEach(doc => student = { id: doc.id, ...doc.data() });
-      setStudentInfo(student);
-      if (!student) {
-        setGrades([]);
-        setPayments([]);
-        setStudentAttendance([]);
-        setLoading(false);
-        return;
-      }
-      // Calificaciones recientes (por studentId)
-      const gradesSnap = await getDocs(query(collection(db, 'grades'), where('studentId', '==', student.id)));
-      const gradesArr = [];
-      gradesSnap.forEach(doc => gradesArr.push({ id: doc.id, ...doc.data() }));
-      // Guardar todas las notas en el estado, no solo las 4 recientes
-      setGrades(gradesArr.sort((a, b) => {
-        // Ordenar por fecha descendente si existe, si no, por id
-        if (a.date && b.date) {
-          // Si es tipo string o timestamp
-          const da = a.date.seconds ? a.date.seconds : Date.parse(a.date);
-          const db = b.date.seconds ? b.date.seconds : Date.parse(b.date);
-          return db - da;
-        }
-        return b.id.localeCompare(a.id);
-      }));
-      // Pagos (por studentId)
-      const paymentsSnap = await getDocs(query(collection(db, 'payments'), where('studentId', '==', student.id)));
-      const paymentsArr = [];
-      paymentsSnap.forEach(doc => paymentsArr.push({ id: doc.id, ...doc.data() }));
-      setPayments(paymentsArr);
-      // Asistencias (por studentId)
-      const attSnap = await getDocs(query(collection(db, 'attendance'), where('studentId', '==', student.id)));
-      const attArr = [];
-      attSnap.forEach(doc => attArr.push({ id: doc.id, ...doc.data() }));
-      setStudentAttendance(attArr);
-      // --- NUEVO: Traer módulos y seminarios de la carrera ---
-      if (student && student.career) {
-        // Buscar la carrera por nombre
-        const careersSnap = await getDocs(query(collection(db, 'careers'), where('nombre', '==', student.career)));
-        let careerDoc = null;
-        careersSnap.forEach(doc => careerDoc = { id: doc.id, ...doc.data() });
-        if (careerDoc) {
-          const modulesSnap = await getDocs(collection(db, 'careers', careerDoc.id, 'modules'));
-          const modulesArr = modulesSnap.docs.map(m => ({ id: m.id, ...m.data() }));
-          setCareerModules(modulesArr);
-          // Seminarios de la carrera
-          setCareerSeminarios(Array.isArray(careerDoc.seminarios) ? careerDoc.seminarios.map((s, idx) => ({ id: `seminario${idx+1}`, ...s })) : []);
-        } else {
-          setCareerModules([]);
-          setCareerSeminarios([]);
-        }
-      } else {
-        setCareerModules([]);
-        setCareerSeminarios([]);
-      }
-      // Cargar también módulos generales (se mostrarán junto a los específicos)
+      setLoading(true);
+
       try {
-        const gmSnap = await getDocs(collection(db, 'generalModules'));
-        const gmArr = gmSnap.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            ...data,
+        // Fetch Student Info
+        const studentsSnap = await getDocs(query(collection(db, 'students'), where('email', '==', currentUser.email)));
+        let student = null;
+        studentsSnap.forEach(doc => student = { id: doc.id, ...doc.data() });
+        setStudentInfo(student);
+
+        if (student) {
+          // Fetch Grades
+          const gradesSnap = await getDocs(query(collection(db, 'grades'), where('studentId', '==', student.id)));
+          setGrades(gradesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a, b) => {
+            const dateA = a.date?.seconds || Date.parse(a.date) || 0;
+            const dateB = b.date?.seconds || Date.parse(b.date) || 0;
+            return dateB - dateA;
+          }));
+
+          // Fetch Payments
+          const paymentsSnap = await getDocs(query(collection(db, 'payments'), where('studentId', '==', student.id)));
+          setPayments(paymentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+          // Fetch Attendance
+          const attSnap = await getDocs(query(collection(db, 'attendance'), where('studentId', '==', student.id)));
+          setStudentAttendance(attSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+          // Fetch Career Modules & Seminarios
+          if (student.career) {
+            const careersSnap = await getDocs(query(collection(db, 'careers'), where('nombre', '==', student.career)));
+            let careerDoc = null;
+            careersSnap.forEach(doc => careerDoc = { id: doc.id, ...doc.data() });
+            if (careerDoc) {
+              const modulesSnap = await getDocs(collection(db, 'careers', careerDoc.id, 'modules'));
+              setCareerModules(modulesSnap.docs.map(m => ({ id: m.id, ...m.data() })));
+              setCareerSeminarios(Array.isArray(careerDoc.seminarios) ? careerDoc.seminarios.map((s, idx) => ({ id: `seminario${idx+1}`, ...s })) : []);
+            }
+          }
+
+          // Fetch General Modules
+          const gmSnap = await getDocs(collection(db, 'generalModules'));
+          setGeneralModules(gmSnap.docs.map(doc => ({ 
+            id: doc.id, 
+            ...doc.data(), 
             isGeneral: true,
-            // opcional: añadir sufijo para distinguir en el dashboard
-            nombre: data.nombre + (data.nombre?.includes('(General)') ? '' : ' (General)')
-          };
-        });
-        setGeneralModules(gmArr);
-      } catch (err) {
-        console.error('Error fetching general modules: ', err);
-        setGeneralModules([]);
-      }
+            nombre: doc.data().nombre + (doc.data().nombre?.includes('(General)') ? '' : ' (General)')
+          })));
 
-      // Cargar precios de los semestres
-      try {
-        const pricesSnap = await getDocs(collection(db, 'semesterPrices'));
-        const prices = {};
-        pricesSnap.forEach(doc => {
-          prices[doc.id] = doc.data().value;
-        });
-        setSemesterPrices(prices);
+          // Fetch Semester Prices
+          const pricesSnap = await getDocs(collection(db, 'semesterPrices'));
+          const prices = {};
+          pricesSnap.forEach(doc => prices[doc.id] = doc.data().value);
+          setSemesterPrices(prices);
+        }
       } catch (error) {
-        console.error("Error fetching semester prices: ", error);
+        console.error("Error fetching data: ", error);
+      } finally {
+        setLoading(false);
       }
-
-      setLoading(false);
     };
+
     fetchData();
   }, [currentUser]);
 
-  // --- Lógica para promedio final por módulo ---
-  // Agrupar notas por módulo
+  // Sync activeSection with URL
+  useEffect(() => {
+    const path = location.pathname;
+    if (path.endsWith('/academic')) setActiveSection('academic');
+    else if (path.endsWith('/finance')) setActiveSection('finance');
+    else if (path.endsWith('/settings')) setActiveSection('settings');
+    else setActiveSection('home');
+  }, [location.pathname]);
+
+  // Derived Values for Dashboard Home
+  const getStats = () => {
+    let moduloResumenNombre = null;
+    let porcentajeResumen = null;
+    let cursandoArr = [];
+    let aprobadosArr = [];
+
+    if (studentInfo?.modulosAsignados) {
+      cursandoArr = Array.from(new Set(
+        studentInfo.modulosAsignados
+          .filter(m => m.estado === 'cursando')
+          .map(m => findModule(m.id)?.nombre)
+          .filter(Boolean)
+      ));
+
+      aprobadosArr = studentInfo.modulosAsignados
+        .filter(m => m.estado === 'aprobado')
+        .map(m => findModule(m.id)?.nombre || m.id);
+
+      // Simple attendance resumen logic (from original code)
+      const cursandoFull = studentInfo.modulosAsignados.filter(m => m.estado === 'cursando');
+      if (cursandoFull.length > 0) {
+        let mejorModulo = null;
+        let mejorPorcentaje = -1;
+        cursandoFull.forEach(modAsignado => {
+          const registros = studentAttendance.filter(rec => (rec.moduleId === modAsignado.id || rec.moduleName === modAsignado.nombre || rec.moduleName === (findModule(modAsignado.id)?.nombre)));
+          let total = 0, asistidos = 0;
+          registros.forEach(rec => {
+            Object.values(rec.attendance || {}).forEach(val => {
+              total++;
+              if (val === true) asistidos++;
+            });
+          });
+          if (total > 0) {
+            let p = Math.round((asistidos / total) * 100);
+            if (p > mejorPorcentaje) {
+              mejorPorcentaje = p;
+              mejorModulo = registros[0].moduleName || findModule(modAsignado.id)?.nombre;
+            }
+          }
+        });
+        if (mejorModulo) {
+          moduloResumenNombre = mejorModulo;
+          porcentajeResumen = mejorPorcentaje;
+        }
+      }
+    }
+
+    const seminariosAprobadosArr = careerSeminarios.filter(s => {
+      const studentSem = studentInfo?.seminarios?.find(ss => ss.id === s.id);
+      return (studentSem?.estado || s.estado) === 'aprobado';
+    }).map(s => s.nombre);
+
+    // Realistic Progress Calculation
+    const totalModules = careerModules.length;
+    const totalSeminarios = careerSeminarios.length;
+    const totalItems = totalModules + totalSeminarios;
+    const approvedModulesCount = studentInfo?.modulosAsignados?.filter(m => m.estado === 'aprobado').length || 0;
+    const approvedSeminariosCount = studentInfo?.seminarios?.filter(s => s.estado === 'aprobado').length || 0;
+    const totalApproved = approvedModulesCount + approvedSeminariosCount;
+    const porcentajeProgresoReal = totalItems > 0 ? Math.round((totalApproved / totalItems) * 100) : 0;
+
+    // Progress per "Stage" (1, 2, 3, Prácticas/Seminarios)
+    const progresoPorEtapa = {
+      semestre1: 0,
+      semestre2: 0,
+      semestre3: 0,
+      practica: 0
+    };
+
+    if (totalItems > 0) {
+      const calcStage = (sem) => {
+        const modsSem = careerModules.filter(m => Number(m.semestre || m.semester) === sem);
+        if (modsSem.length === 0) return 0; // Si no hay módulos registrados, el progreso es 0
+        const aprobadosSem = modsSem.filter(m => studentInfo?.modulosAsignados?.some(ma => ma.id === m.id && ma.estado === 'aprobado')).length;
+        return Math.round((aprobadosSem / modsSem.length) * 100);
+      };
+
+      progresoPorEtapa.semestre1 = calcStage(1);
+      progresoPorEtapa.semestre2 = calcStage(2);
+      progresoPorEtapa.semestre3 = calcStage(3);
+      progresoPorEtapa.practica = totalSeminarios > 0 ? Math.round((approvedSeminariosCount / totalSeminarios) * 100) : 0;
+    }
+
+    return {
+      moduloResumenNombre,
+      porcentajeResumen,
+      modulosCursando: cursandoArr,
+      modulosAprobados: aprobadosArr,
+      seminariosAprobados: seminariosAprobadosArr,
+      carrera: studentInfo?.career || '-',
+      porcentajeProgresoReal,
+      progresoPorEtapa,
+      semestreActual: studentInfo?.semester || '1'
+    };
+  };
+
+  // Logic for Academic Section
   const notasPorModulo = {};
   grades.forEach(g => {
     if (!notasPorModulo[g.moduleName]) notasPorModulo[g.moduleName] = [];
     notasPorModulo[g.moduleName].push(g);
   });
-  // Agrupar notas por grupo de actividad dentro de cada módulo, asegurando que ACTIVIDADES_1, ACTIVIDADES_2 y EVALUACION_FINAL estén presentes aunque no existan notas
+
   const notasPorModuloYGrupo = {};
   Object.entries(notasPorModulo).forEach(([modulo, notas]) => {
-    notasPorModuloYGrupo[modulo] = {
-      'ACTIVIDADES_1': [],
-      'ACTIVIDADES_2': [],
-      'EVALUACION_FINAL': [],
-      'Otro': []
-    };
+    notasPorModuloYGrupo[modulo] = { 'ACTIVIDADES_1': [], 'ACTIVIDADES_2': [], 'EVALUACION_FINAL': [], 'Otro': [] };
     notas.forEach(nota => {
       const grupo = nota.groupName || nota.groupId || 'Otro';
-      if (grupo === 'ACTIVIDADES_1' || grupo === 'ACTIVIDADES_2' || grupo === 'EVALUACION_FINAL') {
-        notasPorModuloYGrupo[modulo][grupo].push(nota);
-      } else {
-        notasPorModuloYGrupo[modulo]['Otro'].push(nota);
-      }
+      if (notasPorModuloYGrupo[modulo][grupo]) notasPorModuloYGrupo[modulo][grupo].push(nota);
+      else notasPorModuloYGrupo[modulo]['Otro'].push(nota);
     });
   });
-  // Función para calcular promedio ponderado igual que en GradeReport.js (redondeando a 2 decimales, usando 0 si falta algún grupo)
+
   const calcularPromedioFinal = (notas) => {
     const notaHabilitacion = notas.find(n => n.groupId === 'HABILITACION' || n.groupName === 'HABILITACION');
-
-    if (notaHabilitacion) {
-        return {
-            finalGrade: parseFloat(notaHabilitacion.grade).toFixed(2),
-            isHabilitacion: true
-        };
-    }
-
-    const getNota = (grupo) => {
-      const grupoNotas = notas.filter(n => n.groupId === grupo || n.groupName === grupo);
-      if (!grupoNotas.length) return 0;
-      return grupoNotas.reduce((acc, n) => acc + parseFloat(n.grade), 0) / grupoNotas.length;
-    };
-    const act1 = getNota('ACTIVIDADES_1');
-    const act2 = getNota('ACTIVIDADES_2');
-    const evalFinal = getNota('EVALUACION_FINAL');
-    const p1 = act1 != null ? act1 : 0;
-    const p2 = act2 != null ? act2 : 0;
-    const pf = evalFinal != null ? evalFinal : 0;
+    if (notaHabilitacion) return { finalGrade: parseFloat(notaHabilitacion.grade).toFixed(2), isHabilitacion: true };
     
-    return {
-        finalGrade: (p1 * 0.3 + p2 * 0.3 + pf * 0.4).toFixed(2),
-        isHabilitacion: false
+    const getNota = (grupo) => {
+      const gNotas = notas.filter(n => n.groupId === grupo || n.groupName === grupo);
+      return gNotas.length ? gNotas.reduce((acc, n) => acc + parseFloat(n.grade), 0) / gNotas.length : 0;
     };
+    const p1 = getNota('ACTIVIDADES_1'), p2 = getNota('ACTIVIDADES_2'), pf = getNota('EVALUACION_FINAL');
+    return { finalGrade: (p1 * 0.3 + p2 * 0.3 + pf * 0.4).toFixed(2), isHabilitacion: false };
   };
 
-  // Calcular asistencia real por módulo
-  const asistenciaPorModulo = {};
-  studentAttendance.forEach(rec => {
-    if (!asistenciaPorModulo[rec.moduleName]) asistenciaPorModulo[rec.moduleName] = { total: 0, asistidos: 0 };
-    Object.entries(rec.attendance || {}).forEach(([dateStr, val]) => {
-      asistenciaPorModulo[rec.moduleName].total++;
-      if (val === true) asistenciaPorModulo[rec.moduleName].asistidos++;
-    });
-  });
-  // --- Lógica para mostrar asistencia por módulo según estado (usando moduleName real del registro de asistencia) ---
-  // Buscar módulo "cursando" (si hay), si no, el último "aprobado"
-  let moduloResumenNombre = null;
-  let porcentajeResumen = null;
-  if (studentInfo && Array.isArray(studentInfo.modulosAsignados)) {
-    // Buscar todos los módulos en estado cursando
-    const cursandoArr = studentInfo.modulosAsignados.filter(m => m.estado === 'cursando');
-    let moduloCursandoConAsistencia = null;
-    let porcentajeCursando = null;
-    if (cursandoArr.length > 0) {
-      // Buscar el módulo cursando con mayor porcentaje de asistencia (pero que tenga asistencia)
-      let mejorModulo = null;
-      let mejorPorcentaje = null;
-      cursandoArr.forEach(modAsignado => {
-        const registros = studentAttendance.filter(rec => (rec.moduleId === modAsignado.id || rec.moduleName === modAsignado.nombre || rec.moduleName === (findModule(modAsignado.id)?.nombre)));
-        let total = 0;
-        let asistidos = 0;
-        registros.forEach(rec => {
-          Object.entries(rec.attendance || {}).forEach(([dateStr, val]) => {
-            total++;
-            if (val === true) asistidos++;
-          });
-        });
-        if (total > 0) {
-          let porcentaje = Math.round((asistidos / total) * 100);
-          let nombreModulo = registros.length > 0 ? registros[0].moduleName : (findModule(modAsignado.id)?.nombre || 'Módulo');
-          if (mejorModulo === null || porcentaje > mejorPorcentaje) {
-            mejorModulo = nombreModulo;
-            mejorPorcentaje = porcentaje;
-          }
-        }
-      });
-      if (mejorModulo !== null) {
-        moduloCursandoConAsistencia = mejorModulo;
-        porcentajeCursando = mejorPorcentaje;
-      }
-    }
-    if (moduloCursandoConAsistencia !== null) {
-      moduloResumenNombre = moduloCursandoConAsistencia;
-      porcentajeResumen = porcentajeCursando;
-    } else {
-      // Buscar el último aprobado (por orden de aparición en modulosAsignados) que tenga asistencia
-      const aprobados = [...studentInfo.modulosAsignados].filter(m => m.estado === 'aprobado').reverse();
-      let encontrado = false;
-      for (const moduloAsignado of aprobados) {
-        const registros = studentAttendance.filter(rec => (rec.moduleId === moduloAsignado.id || rec.moduleName === moduloAsignado.nombre || rec.moduleName === (findModule(moduloAsignado.id)?.nombre)));
-        let total = 0;
-        let asistidos = 0;
-        registros.forEach(rec => {
-          Object.entries(rec.attendance || {}).forEach(([dateStr, val]) => {
-            total++;
-            if (val === true) asistidos++;
-          });
-        });
-        if (registros.length > 0 && total > 0) {
-          moduloResumenNombre = registros[0].moduleName;
-          porcentajeResumen = Math.round((asistidos / total) * 100);
-          encontrado = true;
-          break;
-        }
-      }
-      if (!encontrado && aprobados.length > 0) {
-        // Si no hay ninguno con asistencia, mostrar el último aprobado aunque no tenga asistencia
-        const moduloAsignado = aprobados[0];
-        const moduloObj = findModule(moduloAsignado.id);
-        moduloResumenNombre = moduloObj ? moduloObj.nombre : 'Módulo';
-        porcentajeResumen = 0;
-      }
-    }
-  }
-  // Cantidad de módulos actualmente cursando y sus nombres (únicos, sin duplicados y solo válidos)
-  const modulosCursando = Array.from(new Set(
-    (studentInfo?.modulosAsignados || [])
-      .filter(m => m.estado === 'cursando')
-      .map(m => {
-        const moduloObj = findModule(m.id);
-        return moduloObj ? moduloObj.nombre : null;
-      })
-      .filter(Boolean)
-  ));
-  // Cantidad de módulos logrados (aprobados)
-  const modulosAprobados = (studentInfo?.modulosAsignados || [])
-    .filter(m => m.estado === 'aprobado')
-    .map(m => {
-      const moduloObj = findModule(m.id);
-      return moduloObj ? moduloObj.nombre : m.id;
-    });
-  // Seminarios aprobados (combinando carrera y personalizados)
-  const seminariosAprobados = (careerSeminarios || [])
-    .map(seminario => {
-      let estado = seminario.estado || 'pendiente';
-      let info = { ...seminario };
-      if (Array.isArray(studentInfo?.seminarios)) {
-        const sem = studentInfo.seminarios.find(s => s.id === seminario.id);
-        if (sem) {
-          estado = sem.estado || seminario.estado || 'pendiente';
-          info = { ...seminario, ...sem };
-        }
-      }
-      return { ...info, estado };
-    })
-    .filter(s => s.estado === 'aprobado')
-    .map(s => s.nombre);
-
-  // Calcular valores de pagos y descuentos
-  const valorSemestre = 200000;
-  const descuento = studentInfo?.descuento || 0;
-  const valorConDescuento = valorSemestre - (valorSemestre * (descuento / 100));
-  const pagosModulo = payments.filter(p => p.category === 'Pago de módulo' && p.status === 'completed');
-  const totalPagadoModulo = pagosModulo.reduce((sum, p) => sum + Number(p.amount), 0);
-  const saldoPendiente = Math.max(0, valorConDescuento - totalPagadoModulo);
-  const formatCOP = v => v?.toLocaleString('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 });
-
-  // Estado para mostrar/ocultar notas por módulo
-  const [modulosNotasVisibles, setModulosNotasVisibles] = useState({});
-  const toggleNotasModulo = (modulo) => {
-    setModulosNotasVisibles(prev => ({ ...prev, [modulo]: !prev[modulo] }));
-  };
-
-  // Estado para semestres desplegables
-  const [openSemesters, setOpenSemesters] = useState({});
-  const toggleSemester = (semester) => {
-    setOpenSemesters(prev => ({ ...prev, [semester]: !prev[semester] }));
-  };
-
-  // Estado y handlers para modal de informe de notas
-  const [showGradeReportModal, setShowGradeReportModal] = useState(false);
-  const [selectedModuleForReport, setSelectedModuleForReport] = useState(null);
-  const handleOpenGradeReport = (modulo) => {
-    setSelectedModuleForReport(modulo);
-    setShowGradeReportModal(true);
-  };
-  const handleCloseGradeReport = () => {
-    setShowGradeReportModal(false);
-    setSelectedModuleForReport(null);
-  };
-
-  if (loading) return <div className="p-8">Cargando tu panel...</div>;
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-[#f5faff] space-y-4">
+      <div className="w-12 h-12 border-4 border-[#23408e] border-t-transparent rounded-full animate-spin" />
+      <p className="text-[#23408e] font-bold animate-pulse">Preparando tu portal académico...</p>
+    </div>
+  );
 
   return (
-    <div className="p-0 md:p-8 bg-gradient-to-br from-[#f5faff] to-[#e3eafc] min-h-screen">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-6">
-          <div>
-            <h1 className="text-3xl md:text-4xl font-extrabold text-[#23408e] mb-1 tracking-tight drop-shadow-sm">¡Bienvenido, {studentInfo?.name || currentUser?.name}!</h1>
-            <p className="text-gray-500 text-base md:text-lg">Aquí tienes un resumen de tu información académica y financiera.</p>
-          </div>
-          <div className="flex gap-2 mt-2 md:mt-0">
-            <span className="inline-flex items-center px-3 py-1 rounded-full bg-[#e3fcec] text-[#009245] font-bold text-sm shadow border border-[#009245]">
-              <IdCard theme="outline" size="20" className="mr-1" />
-              {studentInfo?.career || '-'}
-            </span>
-            <span className="inline-flex items-center px-3 py-1 rounded-full bg-[#e3eafc] text-[#23408e] font-bold text-sm shadow border border-[#23408e]">
-              Inscrito: {studentInfo?.createdAt ? (studentInfo.createdAt.seconds ? new Date(studentInfo.createdAt.seconds * 1000).toLocaleDateString('es-CO') : new Date(studentInfo.createdAt).toLocaleDateString('es-CO')) : '--/--/----'}
-            </span>
-          </div>
-        </div>
+    <div className="w-full">
+      {/* Contenido Dinámico */}
+      <div className="max-w-7xl mx-auto py-8 px-4">
+        {activeSection === 'home' && (
+          <DashboardHome 
+            studentInfo={studentInfo} 
+            currentUser={currentUser} 
+            stats={getStats()} 
+          />
+        )}
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          {/* Asistencia por módulo (modificada según lógica requerida) */}
-          <div className="bg-white rounded-2xl shadow-lg p-6 flex flex-col items-center border-t-4 border-green-400 hover:scale-105 transition-transform duration-200">
-            <div className="text-3xl font-extrabold text-green-600 mb-1">{moduloResumenNombre ? `${porcentajeResumen}%` : '--'}</div>
-            <div className="text-base font-semibold text-gray-700">{moduloResumenNombre ? moduloResumenNombre : 'Sin datos'}</div>
-            <div className="mt-2 text-sm text-gray-400">Asistencia por módulo</div>
-          </div>
-          {/* Módulos actualmente cursando */}
-          <div className="bg-white rounded-2xl shadow-lg p-6 flex flex-col items-center border-t-4 border-blue-400 hover:scale-105 transition-transform duration-200">
-            <div className="text-3xl font-extrabold text-blue-700 mb-1">{modulosCursando.length}</div>
-            <div className="text-base font-semibold text-gray-700">Actualmente cursando</div>
-            <div className="mt-2 text-sm text-gray-400">
-              {modulosCursando.length > 0 ? modulosCursando.join(', ') : 'Sin módulos'}
-            </div>
-          </div>
-          {/* Módulos logrados */}
-          <div className="bg-white rounded-2xl shadow-lg p-6 flex flex-col items-center border-t-4 border-purple-400 hover:scale-105 transition-transform duration-200">
-            <GoldMedal theme="outline" size="32" className="mb-2 text-purple-600" />
-            <div className="text-3xl font-extrabold text-purple-600 mb-1">{modulosAprobados.length + seminariosAprobados.length}</div>
-            <div className="text-base font-semibold text-gray-700">Reconocimientos</div>
-            <div className="mt-2 text-sm text-gray-700 text-center w-full">
-              {modulosAprobados.length + seminariosAprobados.length > 0 ? (
-                <>
-                  {modulosAprobados.length > 0 && (
-                    <div className="mb-1">
-                      <span className="font-semibold text-purple-700">Módulos:</span>
-                      <ul className="inline ml-1">
-                        {modulosAprobados.map((id, idx) => {
-                          const mod = findModule(id);
-                          return (
-                            <li key={id} className="inline text-gray-800 font-medium">
-                              {mod ? mod.nombre : id}{idx < modulosAprobados.length - 1 ? <span className="text-gray-400">, </span> : null}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  )}
-                  {seminariosAprobados.length > 0 && (
-                    <div>
-                      <span className="font-semibold text-green-700">Seminarios:</span>
-                      <ul className="inline ml-1">
-                        {seminariosAprobados.map((id, idx) => {
-                          const sem = careerSeminarios.find(s => s.id === id);
-                          return (
-                            <li key={id} className="inline text-gray-800 font-medium">
-                              {sem ? sem.nombre : id}{idx < seminariosAprobados.length - 1 ? <span className="text-gray-400">, </span> : null}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <span className="text-gray-400">Sin reconocimientos</span>
-              )}
-            </div>
-          </div>
-        </div>
+        {activeSection === 'academic' && (
+          <AcademicSection 
+            notasPorModulo={notasPorModulo}
+            findModuleByName={findModuleByName}
+            getModuleSemester={getModuleSemester}
+            calcularPromedioFinal={calcularPromedioFinal}
+            notasPorModuloYGrupo={notasPorModuloYGrupo}
+            studentAttendance={studentAttendance}
+            findModule={findModule}
+            careerSeminarios={careerSeminarios}
+            toggleSemester={toggleSemester}
+            openSemesters={openSemesters}
+            studentInfo={studentInfo}
+          />
+        )}
 
-        {/* Sección de Calificaciones y Estado de Pagos */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-          {/* Calificaciones por Semestre */}
-          <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
-            <h2 className="text-xl font-bold flex items-center gap-2 text-[#23408e] mb-4">
-              <Book theme="outline" size="22" className="mr-1" />
-              Mis Calificaciones
-            </h2>
-            {Object.keys(notasPorModulo).length > 0 ? (
-              Object.entries(
-                // Agrupar módulos por semestre
-                Object.entries(notasPorModulo).reduce((acc, [moduleName, notas]) => {
-                  const moduleDetails = findModuleByName(moduleName);
-                  const semester = getModuleSemester(moduleDetails);
-                  if (!acc[semester]) acc[semester] = {};
-                  acc[semester][moduleName] = notas;
-                  return acc;
-                }, {})
-              )
-              .sort(([semA], [semB]) => semA.localeCompare(semB)) // Ordenar semestres
-              .map(([semestre, modulos]) => (
-                <div key={semestre} className="mb-4 border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                  <button
-                    onClick={() => toggleSemester(`grades-${semestre}`)}
-                    className="w-full flex justify-between items-center text-left p-4 bg-gray-50 hover:bg-gray-100 transition duration-200 focus:outline-none"
-                  >
-                    <div className="flex items-center">
-                      <h3 className="text-lg font-bold text-gray-800">Semestre {semestre}</h3>
-                      <span className="ml-4 text-sm font-semibold text-gray-600 bg-gray-200 px-2.5 py-1 rounded-full">{Object.keys(modulos).length} Módulos</span>
-                    </div>
-                    <span className={`transform transition-transform duration-300 ${openSemesters[`grades-${semestre}`] ? 'rotate-180' : ''}`}>
-                      <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                    </span>
-                  </button>
-                  {openSemesters[`grades-${semestre}`] && (
-                    <div className="p-4 bg-white space-y-4">
-                      {Object.entries(modulos).map(([modulo, notas]) => (
-                        <div key={modulo} className="bg-gray-50 rounded-xl p-3 shadow-sm border border-gray-200">
-                          <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4 gap-1">
-                            <div className="flex-1 flex items-center gap-2">
-                              <span className="font-bold text-[#23408e] text-base">{modulo}</span>
-                              {(promedio => (
-                                <>
-                                  <span className={`px-3 py-1 rounded-lg bg-[#e3fcec] text-[#23408e] font-bold text-lg shadow border ${promedio.isHabilitacion ? 'border-blue-500' : 'border-[#009245]'}`}>
-                                    {promedio.finalGrade}
-                                  </span>
-                                  {promedio.isHabilitacion && <span className="px-2 py-1 text-xs font-bold text-white bg-blue-500 rounded">HABILITACIÓN</span>}
-                                </>
-                              ))(calcularPromedioFinal(notas))}
-                            </div>
-                            <div className="flex gap-2 mt-2 sm:mt-0">
-                              <button
-                                className="px-3 py-1 rounded-full font-semibold shadow-sm border border-[#2563eb] text-[#2563eb] bg-white hover:bg-[#2563eb] hover:text-white text-xs transition"
-                                onClick={() => toggleNotasModulo(modulo)}
-                              >
-                                {modulosNotasVisibles[modulo] ? 'Ocultar' : 'Ver Notas'}
-                              </button>
-                              <button
-                                className="p-2 rounded-full font-semibold shadow-sm border border-[#ffd600] text-[#ffd600] bg-white hover:bg-[#ffd600] hover:text-white text-xs transition flex items-center"
-                                title="Imprimir informe de notas"
-                                onClick={() => handleOpenGradeReport(modulo)}
-                              >
-                                <Printer theme="outline" size="16" />
-                              </button>
-                            </div>
-                          </div>
-                          {modulosNotasVisibles[modulo] && (
-                            <div className="mt-3 overflow-x-auto">
-                              <table className="min-w-full border text-xs">
-                                {/* ... encabezado de tabla ... */}
-                                <tbody>
-                                  {Object.entries(notasPorModuloYGrupo[modulo] || {}).flatMap(([grupo, notasGrupo]) =>
-                                    notasGrupo.map((nota, idx) => (
-                                      <tr key={nota.id || idx}>
-                                        <td className="border px-2 py-1">{nota.activityName || 'Actividad'}</td>
-                                        <td className="border px-2 py-1">{grupo}</td>
-                                        <td className="border px-2 py-1">{nota.grade}</td>
-                                      </tr>
-                                    ))
-                                  )}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))
-            ) : (
-              <div className="text-gray-400">No hay calificaciones registradas.</div>
-            )}
-          </div>
+        {activeSection === 'finance' && (
+          <FinanceSection 
+            payments={payments}
+            semesterPrices={semesterPrices}
+            studentInfo={studentInfo}
+            toggleSemester={toggleSemester}
+            openSemesters={openSemesters}
+            handlePrintFinanceReceipt={handlePrintFinanceReceipt}
+            formatCOP={formatCOP}
+          />
+        )}
 
-          {/* Estado de Pagos por Semestre */}
-          <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
-            <h2 className="text-xl font-bold flex items-center gap-2 text-[#23408e] mb-4">
-              <Wallet theme="outline" size="22" className="mr-1" />
-              Estado de Pagos
-            </h2>
-            {payments.length > 0 ? (
-              Object.entries(
-                // Agrupar pagos por semestre
-                payments.reduce((acc, p) => {
-                  const semester = p.semestre || 'General';
-                  if (!acc[semester]) acc[semester] = [];
-                  acc[semester].push(p);
-                  return acc;
-                }, {})
-              )
-              .sort(([semA], [semB]) => semA.localeCompare(semB)) // Ordenar semestres
-              .map(([semestre, pagosSemestre]) => {
-                // Determinar el período académico para este semestre (del primer pago)
-                const periodo = pagosSemestre.length > 0 ? pagosSemestre[0].periodo : null;
-                const priceId = periodo ? `${periodo}_${semestre}` : null;
-                const valorSem = priceId && semesterPrices[priceId] !== undefined ? semesterPrices[priceId] : 200000; // Fallback
-                const valorConDesc = valorSem - (valorSem * (descuento / 100));
-                const totalPagadoSem = pagosSemestre.filter(p => p.category === 'Pago de módulo' && p.status === 'completed').reduce((sum, p) => sum + Number(p.amount), 0);
-                const saldoPendienteSem = Math.max(0, valorConDesc - totalPagadoSem);
-
-                return (
-                  <div key={semestre} className="mb-4 border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                    <button
-                      onClick={() => toggleSemester(`payments-${semestre}`)}
-                      className="w-full flex justify-between items-center text-left p-4 bg-gray-50 hover:bg-gray-100 transition duration-200 focus:outline-none"
-                    >
-                      <div className="flex items-center">
-                        <h3 className="text-lg font-bold text-gray-800">Semestre {semestre}</h3>
-                        <span className="ml-4 text-sm font-semibold text-gray-600 bg-gray-200 px-2.5 py-1 rounded-full">{pagosSemestre.length} Pagos</span>
-                      </div>
-                      <span className={`transform transition-transform duration-300 ${openSemesters[`payments-${semestre}`] ? 'rotate-180' : ''}`}>
-                        <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                      </span>
-                    </button>
-                    {openSemesters[`payments-${semestre}`] && (
-                      <div className="p-4 bg-white">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-                          <div className="rounded-lg border-l-4 border-green-500 bg-green-50 p-4 shadow-sm">
-                            <div className="text-sm text-green-700 font-semibold mb-1">Total Pagado</div>
-                            <div className="text-2xl font-bold text-green-800">{formatCOP(totalPagadoSem)}</div>
-                          </div>
-                          <div className="rounded-lg border-l-4 border-red-500 bg-red-50 p-4 shadow-sm">
-                            <div className="text-sm text-red-700 font-semibold mb-1">Saldo Pendiente</div>
-                            <div className="text-2xl font-bold text-red-800">{formatCOP(saldoPendienteSem)}</div>
-                          </div>
-                        </div>
-                        <ul className="divide-y divide-gray-200">
-                          {pagosSemestre.map((p, idx) => (
-                            <li key={p.id || idx} className="flex justify-between items-center py-3 text-sm">
-                              <div>
-                                <span className="font-semibold text-gray-800">{p.description || 'Pago'}</span>
-                                <span className="block text-xs text-gray-500 mt-1">{p.date ? new Date(p.date.seconds ? p.date.seconds * 1000 : p.date).toLocaleDateString('es-CO') : ''}</span>
-                              </div>
-                              <div className="text-right">
-                                <span className="font-bold text-gray-900 text-base">{formatCOP(p.amount)}</span>
-                                <button className="ml-4 px-3 py-1 rounded-full font-semibold shadow-sm border border-blue-500 text-blue-600 bg-white hover:bg-blue-500 hover:text-white text-xs transition" onClick={() => handlePrintFinanceReceipt(p)}>Recibo</button>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            ) : (
-              <div className="text-gray-500">No hay pagos registrados.</div>
-            )}
-          </div>
-        </div>
-
-        {/* Asistencia Detallada */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-gray-100">
-          <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-[#23408e]">
-            <Calendar theme="outline" size="22" className="mr-1" />
-            Mi Asistencia
-          </h2>
-          {studentAttendance.length === 0 ? (
-            <div className="text-gray-400">No hay registros de asistencia.</div>
-          ) : (
-            (() => {
-              const asistenciaPorModulo = {};
-              studentAttendance.forEach(rec => {
-                const mod = rec.moduleName;
-                if (!mod) return;
-                if (!asistenciaPorModulo[mod]) {
-                  asistenciaPorModulo[mod] = { attendance: {}, moduleName: mod, recs: [] };
-                }
-                Object.entries(rec.attendance || {}).forEach(([dateStr, val]) => {
-                  asistenciaPorModulo[mod].attendance[dateStr] = val;
-                });
-                asistenciaPorModulo[mod].recs.push(rec);
-              });
-
-              const asistenciaPorSemestre = Object.values(asistenciaPorModulo).reduce((acc, modRec) => {
-                const moduleDetails = findModuleByName(modRec.moduleName);
-                const semester = getModuleSemester(moduleDetails);
-                if (!acc[semester]) {
-                  acc[semester] = [];
-                }
-                acc[semester].push(modRec);
-                return acc;
-              }, {});
-
-              return Object.keys(asistenciaPorSemestre).sort().map(semestre => (
-                <div key={semestre} className="mb-4 border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                  <button
-                    onClick={() => toggleSemester(`attendance-${semestre}`)}
-                    className="w-full flex justify-between items-center text-left p-4 bg-gray-50 hover:bg-gray-100 transition duration-200 focus:outline-none"
-                  >
-                    <div className="flex items-center">
-                      <h3 className="text-lg font-bold text-gray-800">Semestre {semestre}</h3>
-                      <span className="ml-4 text-sm font-semibold text-gray-600 bg-gray-200 px-2.5 py-1 rounded-full">{asistenciaPorSemestre[semestre].length} Módulos</span>
-                    </div>
-                    <span className={`transform transition-transform duration-300 ${openSemesters[`attendance-${semestre}`] ? 'rotate-180' : ''}`}>
-                      <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                    </span>
-                  </button>
-                  {openSemesters[`attendance-${semestre}`] && (
-                    <div className="p-4 bg-white overflow-x-auto">
-                      <table className="min-w-full border-collapse">
-                        <thead>
-                          <tr className="bg-gray-100">
-                            <th className="px-4 py-2 text-left font-semibold text-gray-700">Módulo</th>
-                            <th className="px-4 py-2 text-center font-semibold text-gray-700">Total Clases</th>
-                            <th className="px-4 py-2 text-center font-semibold text-gray-700">Asistencias</th>
-                            <th className="px-4 py-2 text-center font-semibold text-gray-700">Acciones</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                          {asistenciaPorSemestre[semestre].map((modRec) => {
-                            const totalSab = Object.keys(modRec.attendance).length;
-                            const asistidos = Object.values(modRec.attendance).filter(val => val === true).length;
-                            return (
-                              <tr key={modRec.moduleName} className="hover:bg-gray-50">
-                                <td className="px-4 py-3 font-semibold text-gray-800">{modRec.moduleName}</td>
-                                <td className="px-4 py-3 text-center">{totalSab}</td>
-                                <td className="px-4 py-3 text-center">
-                                  <span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800 mr-2">{asistidos} Asistió</span>
-                                  <span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800">{totalSab - asistidos} No asistió</span>
-                                </td>
-                                <td className="px-4 py-3 text-center">
-                                  <button
-                                    className="px-3 py-1 rounded-full font-semibold shadow-sm border border-blue-500 text-blue-600 bg-white hover:bg-blue-500 hover:text-white text-xs transition"
-                                    onClick={() => setDetailRecord({ ...modRec.recs[0], moduleName: modRec.moduleName, attendance: modRec.attendance })}
-                                  >Ver Detalles</button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              ));
-            })()
-          )}
-          {/* Modal de detalle de asistencia para estudiante */}
-          {detailRecord && (
-            <Modal
-              isOpen={!!detailRecord}
-              onRequestClose={() => setDetailRecord(null)}
-              contentLabel="Detalle de Asistencia"
-              className="modal-center max-w-2xl w-full bg-white rounded-lg shadow-lg p-8 border-t-4 border-[#009245] animate-fadeIn"
-              overlayClassName="overlay-center bg-black bg-opacity-40"
-            >
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold text-[#23408e] flex items-center gap-2">
-                  <svg className="w-7 h-7 text-[#23408e]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                  Detalle de Asistencia
-                </h2>
-                <button onClick={() => setDetailRecord(null)} className="text-gray-400 hover:text-gray-700 text-2xl font-bold">&times;</button>
-              </div>
-              <div className="mb-4">
-                <div className="font-semibold text-lg text-[#23408e]">Módulo: {detailRecord.moduleName || '-'}</div>
-                <div className="text-gray-500">Mostrando todas las asistencias registradas en este módulo</div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full border rounded-lg">
-                  <thead>
-                    <tr className="bg-[#23408e] text-white">
-                      <th className="px-4 py-2 text-left font-semibold">Fecha</th>
-                      <th className="px-4 py-2 text-center font-semibold">Estado</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {/* Mostrar todas las asistencias de todos los meses/años para este módulo */}
-                    {(() => {
-                      // Buscar todos los registros de asistencia de este módulo
-                      const allModuleRecords = studentAttendance.filter(r => r.moduleName === detailRecord.moduleName);
-                      // Unir todas las fechas de asistencia en un solo objeto
-                      const allAttendance = {};
-                      allModuleRecords.forEach(r => {
-                        Object.entries(r.attendance || {}).forEach(([date, val]) => {
-                          allAttendance[date] = val;
-                        });
-                      });
-                      // Ordenar fechas descendente
-                      const sortedDates = Object.keys(allAttendance).sort((a, b) => new Date(b) - new Date(a));
-                      return sortedDates.map(date => (
-                        <tr key={date} className="border-b">
-                          <td className="px-4 py-2 font-semibold text-[#23408e]">{new Date(date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
-                          <td className="px-4 py-2 text-center">
-                            {allAttendance[date] === true ? (
-                              <span className="inline-block px-3 py-1 rounded-full bg-green-100 text-green-700 font-semibold">Asistió</span>
-                            ) : (
-                              <span className="inline-block px-3 py-1 rounded-full bg-red-100 text-red-700 font-semibold">No asistió</span>
-                            )}
-                          </td>
-                        </tr>
-                      ));
-                    })()}
-                  </tbody>
-                </table>
-              </div>
-              <div className="flex justify-end mt-6">
-                <button
-                  onClick={() => setDetailRecord(null)}
-                  className="px-6 py-2 bg-[#009245] text-white rounded-md hover:bg-[#23408e] font-semibold"
-                >Cerrar</button>
-              </div>
-            </Modal>
-          )}
-        </div>
-
-        {/* Módulos Asignados por Semestre */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border-l-4 border-[#2563eb]">
-          <h2 className="text-xl font-bold mb-3 flex items-center gap-2 text-[#2563eb]">
-            <Book theme="outline" size="22" className="mr-1" />
-            Mis Módulos Asignados
-          </h2>
-          {(() => {
-            if (!studentInfo?.modulosAsignados || studentInfo.modulosAsignados.length === 0) {
-              return <p className="text-gray-500">No tienes módulos asignados.</p>;
-            }
-
-            const modulosAgrupados = studentInfo.modulosAsignados.reduce((acc, modAsignado) => {
-              const modDetails = findModule(modAsignado.id);
-              if (!modDetails) return acc;
-
-              const semestre = getModuleSemester(modDetails);
-              if (!acc[semestre]) {
-                acc[semestre] = [];
-              }
-              acc[semestre].push({ ...modDetails, ...modAsignado });
-              return acc;
-            }, {});
-
-            return Object.keys(modulosAgrupados).sort().map(semestre => {
-              const modulosCursandoSemestre = modulosAgrupados[semestre].filter(m => m.estado === 'cursando').length;
-              const modulosAprobadosSemestre = modulosAgrupados[semestre].filter(m => m.estado === 'aprobado').length;
-              return (
-                <div key={semestre} className="mb-4 border border-gray-200 rounded-lg shadow-sm overflow-hidden">
-                  <button
-                    onClick={() => toggleSemester(`modules-${semestre}`)}
-                    className="w-full flex justify-between items-center text-left p-4 bg-gray-50 hover:bg-gray-100 transition duration-200 focus:outline-none"
-                  >
-                    <div className="flex items-center">
-                      <h3 className="text-lg font-bold text-gray-800">Semestre {semestre}</h3>
-                      <span className="ml-4 text-sm font-semibold text-white bg-yellow-500 px-2 py-1 rounded-md">Cursando: {modulosCursandoSemestre}</span>
-                      <span className="ml-2 text-sm font-semibold text-white bg-purple-500 px-2 py-1 rounded-md">Aprobados: {modulosAprobadosSemestre}</span>
-                    </div>
-                    <span className={`transform transition-transform duration-200 ${openSemesters[`modules-${semestre}`] ? 'rotate-180' : ''}`}>
-                      <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                    </span>
-                  </button>
-                  {openSemesters[`modules-${semestre}`] && (
-                    <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                      {modulosAgrupados[semestre].map(mod => {
-                        const estado = mod.estado || 'pendiente';
-                        let color = '';
-                        let border = '';
-                        if (estado === 'aprobado') {
-                          color = 'bg-green-100 text-green-800';
-                          border = 'border-green-400';
-                        } else if (estado === 'cursando') {
-                          color = 'bg-blue-100 text-blue-800';
-                          border = 'border-blue-400';
-                        } else {
-                          color = 'bg-gray-100 text-gray-700';
-                          border = 'border-gray-300';
-                        }
-                        return (
-                          <div key={mod.id} className={`rounded-lg border-l-4 ${border} ${color} p-4 shadow-sm flex flex-col gap-1`}>
-                            <div className="font-bold text-base">{mod.nombre}</div>
-                            <div className="text-xs text-gray-500 mb-1">{mod.descripcion}</div>
-                            <div className="text-xs font-semibold mt-auto pt-1">
-                              Estado: <span className="capitalize font-bold">{estado}</span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            });
-          })()}
-        </div>
-        {/* Seminarios obligatorios de la carrera */}
-        {careerSeminarios.length > 0 && (
-          <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border-l-4 border-green-600">
-            <h2 className="text-xl font-bold mb-3 flex items-center gap-2 text-green-700">
-              <Book theme="outline" size="22" className="mr-1" />
-              Seminarios obligatorios
-            </h2>
-            <ul className="space-y-2 mb-4">
-              {careerSeminarios.map((seminario) => {
-                // Buscar si el estudiante tiene estado propio para este seminario
-                let estado = seminario.estado || 'pendiente';
-                let info = { ...seminario };
-                if (Array.isArray(studentInfo?.seminarios)) {
-                  const sem = studentInfo.seminarios.find(s => s.id === seminario.id);
-                  if (sem) {
-                    estado = sem.estado || seminario.estado || 'pendiente';
-                    info = { ...seminario, ...sem };
-                  }
-                }
-                let estadoColor = '';
-                switch ((estado || '').toLowerCase()) {
-                  case 'aprobado':
-                    estadoColor = 'bg-green-100 text-green-800 border-green-300';
-                    break;
-                  case 'cursando':
-                    estadoColor = 'bg-blue-100 text-blue-800 border-blue-300';
-                    break;
-                  case 'pendiente':
-                  default:
-                    estadoColor = 'bg-gray-100 text-gray-700 border-gray-300';
-                }
-                return (
-                  <li key={seminario.id} className="flex flex-col gap-1 p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-green-50 transition">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-green-900 text-base truncate max-w-[60%]">{info.nombre} <span className="text-xs text-gray-500">(Semestre {info.semestre})</span></span>
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${estadoColor} ml-2`}>
-                        {estado.charAt(0).toUpperCase() + estado.slice(1)}
-                      </span>
-                    </div>
-                    <div className="text-xs text-gray-600 mt-1">
-                      <span className="font-semibold">Profesor:</span> {info.profesor || 'Sin asignar'}<br/>
-                      <span className="font-semibold">Horas:</span> {info.horas || '-'}<br/>
-                      <span className="font-semibold">Estado:</span> {estado.charAt(0).toUpperCase() + estado.slice(1)}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
+        {activeSection === 'settings' && (
+          <SettingsSection 
+            studentInfo={studentInfo} 
+            currentUser={currentUser} 
+          />
         )}
       </div>
 
-      {/* Pagos recientes */}
-      {/* <div className="bg-white rounded-lg shadow p-6 mt-6">
-        <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-          <Wallet theme="filled" size="24" fill="#23408e" /> Finanzas
-        </h2>
-        {payments.length === 0 ? (
-          <div className="text-gray-500">No hay pagos registrados.</div>
-        ) : (
-          <table className="w-full text-sm mb-4">
-            <thead>
-              <tr className="border-b">
-                <th className="text-left py-1">Fecha</th>
-                <th className="text-left py-1">Descripción</th>
-                <th className="text-left py-1">Categoría</th>
-                <th className="text-right py-1">Valor</th>
-                <th className="text-right py-1">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {payments.map(pago => (
-                <tr key={pago.id} className="border-b">
-                  <td className="py-1">{pago.date ? new Date(pago.date.seconds ? pago.date.seconds * 1000 : pago.date).toLocaleDateString() : ''}</td>
-                  <td className="py-1">{pago.description}</td>
-                  <td className="py-1">{pago.category}</td>
-                  <td className="py-1 text-right">${Number(pago.amount).toLocaleString()}</td>
-                  <td className="py-1 text-right">
-                    <button
-                      className="border rounded px-2 py-1 text-blue-600 hover:bg-blue-50 text-xs"
-                      onClick={() => handlePrintFinanceReceipt(pago)}
-                    >Imprimir</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div> */}
-
-      {/* --- MODAL DE IMPRESIÓN DE RECIBO --- */}
+      {/* Shared Finance Receipt Modal */}
       {showFinanceReceiptModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 print:bg-transparent">
-          <div className="bg-white rounded-lg shadow-lg p-8 max-w-2xl w-full relative border-t-4 border-blue-600 print:shadow-none print:border-0 print:p-0 print:rounded-none">
-            <button className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 print:hidden" onClick={() => setShowFinanceReceiptModal(false)}>&times;</button>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm print:bg-transparent">
+          <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-2xl w-full relative border-t-8 border-[#23408e] print:shadow-none print:border-0 print:p-0 print:rounded-none animate-in">
+            <button 
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 print:hidden text-2xl font-bold" 
+              onClick={() => setShowFinanceReceiptModal(false)}
+            >
+              &times;
+            </button>
             <div ref={financePrintAreaRef}>
               <PaymentReceipt
                 pago={selectedFinanceReceipt}
@@ -963,51 +349,25 @@ const StudentDashboard = () => {
                 reciboNumero={selectedFinanceReceipt ? selectedFinanceReceipt.id?.slice(-6) : ''}
               />
             </div>
-            <div className="flex justify-end mt-6 gap-2 print:hidden">
-              <button onClick={() => setShowFinanceReceiptModal(false)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Cerrar</button>
+            <div className="flex justify-end mt-8 gap-4 print:hidden">
+              <button 
+                onClick={() => setShowFinanceReceiptModal(false)} 
+                className="px-6 py-2 rounded-xl text-gray-500 font-bold hover:bg-gray-100"
+              >
+                Cerrar
+              </button>
               <button
                 onClick={handlePrintFinanceModal}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-semibold"
-              >Imprimir</button>
+                className="px-8 py-2 bg-[#23408e] text-white rounded-xl font-bold shadow-lg shadow-blue-200"
+              >
+                Imprimir Recibo
+              </button>
             </div>
           </div>
         </div>
       )}
-        {/* Modal de informe de notas por módulo */}
-        {showGradeReportModal && selectedModuleForReport && (
-          <Modal
-            isOpen={showGradeReportModal}
-            onRequestClose={handleCloseGradeReport}
-            contentLabel="Informe de Notas"
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40"
-            overlayClassName=""
-            shouldCloseOnOverlayClick={true}
-          >
-            <div className="max-w-3xl w-full mx-auto bg-white rounded-lg shadow-lg border-t-4 border-[#009245] animate-fadeIn relative flex flex-col max-h-[90vh] overflow-y-auto p-2 md:p-8">
-              <button
-                className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-2xl font-bold print:hidden"
-                onClick={handleCloseGradeReport}
-                aria-label="Cerrar"
-              >
-                &times;
-              </button>
-              <GradeReport
-                grades={grades.filter(g => g.moduleName === selectedModuleForReport && g.studentId === studentInfo?.id)}
-                onClose={handleCloseGradeReport}
-              />
-              <div className="flex justify-end mt-6 print:hidden">
-                <button
-                  onClick={handleCloseGradeReport}
-                  className="px-6 py-2 bg-[#009245] text-white rounded-md hover:bg-[#23408e] font-semibold"
-                >Cerrar</button>
-              </div>
-            </div>
-          </Modal>
-        )}
-      </div>
+    </div>
   );
 };
-
-import StudentSettings from './StudentSettings';
 
 export default StudentDashboard;
