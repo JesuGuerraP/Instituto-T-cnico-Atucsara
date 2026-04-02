@@ -785,7 +785,10 @@ const StudentsTable = () => {
                       let estadoColor = '';
                       switch (mod.estado) {
                         case 'aprobado':
-                          estadoColor = 'bg-green-100 text-green-800 border-green-300';
+                          estadoColor = 'bg-emerald-100 text-emerald-800 border-emerald-300';
+                          break;
+                        case 'reprobado':
+                          estadoColor = 'bg-red-100 text-red-800 border-red-300';
                           break;
                         case 'cursando':
                           estadoColor = 'bg-blue-100 text-blue-800 border-blue-300';
@@ -802,10 +805,12 @@ const StudentsTable = () => {
                               <select
                                 value={mod.estado}
                                 onChange={(e) => handleModuleStatusChange(selectedStudent.id, mod.id, e.target.value)}
-                                className={`px-2 py-1 rounded-full text-xs font-semibold border ${estadoColor}`}
+                                disabled={mod.esDefinitivo}
+                                className={`px-2 py-1 rounded-full text-xs font-semibold border ${estadoColor} ${mod.esDefinitivo ? 'opacity-75 cursor-not-allowed' : 'cursor-pointer'}`}
                               >
                                 <option value="cursando">Cursando</option>
                                 <option value="aprobado">Aprobado</option>
+                                <option value="reprobado">Reprobado</option>
                                 <option value="pendiente">Pendiente</option>
                               </select>
                               <button

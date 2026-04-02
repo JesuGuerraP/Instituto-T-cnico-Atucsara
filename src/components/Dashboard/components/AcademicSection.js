@@ -143,7 +143,7 @@ const AcademicSection = ({
                       return (
                         <div key={mod.id} className="group bg-white rounded-3xl p-6 border border-gray-100 shadow-sm hover:shadow-xl hover:border-blue-100 transition-all duration-300 relative overflow-hidden">
                           {/* Status Indicator Bar */}
-                          <div className={`absolute top-0 left-0 w-full h-1.5 ${mod.estado === 'aprobado' ? 'bg-green-500' : mod.estado === 'cursando' ? 'bg-blue-500' : 'bg-gray-200'}`} />
+                          <div className={`absolute top-0 left-0 w-full h-1.5 ${mod.estado === 'aprobado' ? 'bg-emerald-500' : mod.estado === 'reprobado' ? 'bg-red-500' : mod.estado === 'cursando' ? 'bg-blue-500' : 'bg-gray-200'}`} />
                           
                           <div className="flex justify-between items-start mb-6 pt-2">
                             <div className="flex-1 pr-4">
@@ -152,7 +152,8 @@ const AcademicSection = ({
                               </h5>
                               <div className="flex flex-wrap gap-2">
                                 <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${
-                                  mod.estado === 'aprobado' ? 'bg-green-50 text-green-700 border-green-100' : 
+                                  mod.estado === 'aprobado' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 
+                                  mod.estado === 'reprobado' ? 'bg-red-50 text-red-700 border-red-100' :
                                   mod.estado === 'cursando' ? 'bg-blue-50 text-blue-700 border-blue-100' : 
                                   'bg-gray-50 text-gray-400 border-gray-100'
                                 }`}>

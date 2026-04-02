@@ -322,7 +322,7 @@ const UserManagement = () => {
   if (loading) return <div className="text-[#23408e] font-semibold">Cargando usuarios...</div>;
 
   return (
-    <div className="bg-white p-8 rounded-lg shadow-md border-l-4 border-[#23408e] max-w-5xl mx-auto">
+    <div className="bg-white p-6 rounded-lg shadow-md border-l-4 border-[#23408e] w-full">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-[#23408e]">Gestión de Usuarios</h2>
         {currentUser.role === 'admin' && (

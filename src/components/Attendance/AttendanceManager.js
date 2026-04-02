@@ -963,7 +963,7 @@ const AttendanceManager = () => {
   }, [showModal, moduleName, selectedPeriod, selectedSemester, students]); // Depende de students para recalcular si la lista de estudiantes cambia
 
   return (
-    <div className="container mx-auto p-4 sm:p-6 lg:p-8">
+    <div className="w-full">
       <header className="mb-8">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
           <div>

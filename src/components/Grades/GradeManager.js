@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { DefaultPeriodContext } from '../../context/DefaultPeriodContext';
 import { saveActivity } from '../../utils/activityLogger';
+import { syncStudentModuleStatus } from '../../utils/gradeUtils';
 
 // Opciones de grupo hardcodeadas para consistencia
 const GROUP_OPTIONS = [
@@ -340,7 +341,14 @@ const GradeManager = () => {
         details: `Calificación eliminada de ${target?.moduleName} (${target?.activityName}: ${target?.grade})`
       });
 
-      setGrades(grades.filter(g => g.id !== gradeToDelete));
+      const updatedGrades = grades.filter(g => g.id !== gradeToDelete);
+      setGrades(updatedGrades);
+      
+      // Sincronizar estado si existía el target
+      if (target) {
+        await syncStudentModuleStatus(db, target.studentId, target.moduleId || target.moduleName, updatedGrades);
+      }
+
       toast.success('Nota eliminada correctamente');
     } catch (error) {
       toast.error('Error al eliminar la nota.');
@@ -603,7 +611,10 @@ const GradeManager = () => {
                   entityName: `Nota: ${gradeData.studentName}`,
                   details: `Calificación actualizada en ${gradeData.moduleName} (${gradeData.activityName}: ${gradeData.grade})`
                 });
-                setGrades(grades.map(g => g.id === gradeData.id ? gradeData : g));
+                const updatedGrades = grades.map(g => g.id === gradeData.id ? gradeData : g);
+                setGrades(updatedGrades);
+                
+                await syncStudentModuleStatus(db, gradeData.studentId, gradeData.moduleId || gradeData.moduleName, updatedGrades);
                 toast.success('Nota actualizada correctamente');
               } else {
                 const newGradeRef = doc(collection(db, 'grades'), gradeData.id);
@@ -614,7 +625,11 @@ const GradeManager = () => {
                   entityName: `Nota: ${gradeData.studentName}`,
                   details: `Nueva calificación cargada en ${gradeData.moduleName} (${gradeData.activityName}: ${gradeData.grade})`
                 });
-                setGrades(prevGrades => [gradeData, ...prevGrades]);
+                
+                const updatedGrades = [gradeData, ...grades];
+                setGrades(updatedGrades);
+                
+                await syncStudentModuleStatus(db, gradeData.studentId, gradeData.moduleId || gradeData.moduleName, updatedGrades);
                 toast.success('Nota creada correctamente');
               }
             } catch (error) {

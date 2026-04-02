@@ -9,12 +9,13 @@ import { useLocation } from 'react-router-dom';
 import './DashboardLayout.css';
 
 const DashboardLayout = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen]         = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [isModalOpen, setIsModalOpen]         = useState(false);
   const [careersExpanded, setCareersExpanded] = useState(false);
-  const navigate = useNavigate();
-  const location = useLocation();
-  const { currentUser } = useContext(AuthContext); // Usar currentUser
+  const navigate  = useNavigate();
+  const location  = useLocation();
+  const { currentUser } = useContext(AuthContext);
 
   const handleLogout = async () => {
     try {
@@ -25,199 +26,216 @@ const DashboardLayout = () => {
     }
   };
 
-  const openModal = () => {
-    setSidebarOpen(false); // Cierra el sidebar si está abierto
-    setIsModalOpen(true);
-  };
+  const openModal  = () => { setSidebarOpen(false); setIsModalOpen(true); };
   const closeModal = () => setIsModalOpen(false);
 
-  // Colores principales del logo: azul (#23408e), verde (#009245), amarillo (#ffd600)
-  const sidebarBg = "bg-white";
-  const sidebarBorder = "border-r-2 border-blue-900";
-  const logoBg = "bg-blue-900";
-  const logoText = "text-white";
   const activeLink = "bg-blue-100 border-r-4 border-blue-700 text-blue-900";
-  const iconColor = "text-blue-700";
+  const iconColor  = "text-blue-700";
+
+  /* ── Componente de enlace reutilizable ── */
+  const NavLink = ({ to, icon: Icon, label }) => {
+    const isActive = location.pathname === to;
+    return (
+      <li>
+        <Link
+          to={to}
+          onClick={() => setSidebarOpen(false)}
+          title={sidebarCollapsed ? label : ''}
+          className={`flex items-center py-3 transition-all duration-200 ${
+            sidebarCollapsed ? 'justify-center px-0' : 'px-6'
+          } ${isActive ? activeLink : 'text-gray-700 hover:bg-blue-50 hover:text-blue-900'}`}
+        >
+          <span className={`shrink-0 ${isActive ? 'text-blue-900' : iconColor} ${sidebarCollapsed ? '' : 'mr-3'}`}>
+            <Icon theme={isActive ? 'filled' : 'outline'} size="22" />
+          </span>
+          {!sidebarCollapsed && <span className="truncate">{label}</span>}
+        </Link>
+      </li>
+    );
+  };
 
   return (
     <div className="flex h-screen bg-gray-50">
-      {/* Overlay para cerrar sidebar en móvil */}
+
+      {/* Overlay móvil */}
       {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-30 z-20 md:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
+        <div className="fixed inset-0 bg-black bg-opacity-30 z-20 md:hidden" onClick={() => setSidebarOpen(false)} />
       )}
-      {/* Sidebar */}
-      <div className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:relative inset-y-0 left-0 transform w-64 ${sidebarBg} ${sidebarBorder} shadow-lg transition duration-200 ease-in-out z-30 flex flex-col`}>
+
+      {/* ═══ SIDEBAR ═══ */}
+      <div className={`
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+        md:translate-x-0
+        fixed md:relative inset-y-0 left-0
+        w-64 ${sidebarCollapsed ? 'md:w-16' : 'md:w-64'}
+        bg-white border-r-2 border-blue-900 shadow-lg
+        transition-all duration-300 ease-in-out
+        z-30 flex flex-col shrink-0 overflow-hidden
+      `}>
+
         {/* Logo */}
-        <div className={`flex flex-col items-center justify-center h-28 px-4 ${logoBg}`}>
+        <div className={`flex flex-col items-center justify-center overflow-hidden bg-blue-900 transition-all duration-300 ${sidebarCollapsed ? 'h-16 py-2' : 'h-28 py-4'}`}>
           <img
             src="/assets/logoInstituto.jpg"
-            alt="Logo Instituto Técnico"
-            className="w-16 h-16 mb-1 rounded-full bg-white object-contain"
+            alt="Logo"
+            className={`rounded-full bg-white object-contain transition-all duration-300 ${sidebarCollapsed ? 'w-9 h-9' : 'w-14 h-14 mb-1'}`}
           />
-          <h1 className={`text-lg font-bold ${logoText}`}>Instituto Técnico</h1>
-          <span className="text-xs text-blue-100">Sistema de Gestión</span>
+          {!sidebarCollapsed && (
+            <>
+              <h1 className="text-base font-bold text-white truncate">Instituto Técnico</h1>
+              <span className="text-[10px] text-blue-200">Sistema de Gestión</span>
+            </>
+          )}
         </div>
+
         {/* Navegación */}
-        <nav className="mt-4 flex-1">
+        <nav className="mt-2 flex-1 overflow-y-auto custom-scrollbar">
           <ul>
+
+            {/* Panel principal (no estudiante) */}
             {currentUser?.role !== 'student' && (
-              <li>
-                <Link to="/dashboard" className={`flex items-center px-6 py-3 transition group ${location.pathname === '/dashboard' ? activeLink : 'text-gray-700 hover:bg-blue-50 hover:text-blue-900'}`} onClick={() => setSidebarOpen(false)}>
-                  <span className={`mr-3 ${location.pathname === '/dashboard' ? 'text-blue-900' : iconColor}`}><Home theme={location.pathname === '/dashboard' ? "filled" : "outline"} size="22" /></span>
-                  Mi Panel
-                </Link>
-              </li>
+              <NavLink to="/dashboard" icon={Home} label="Mi Panel" />
             )}
-            {/* Solo mostrar el resto si el usuario NO es estudiante */}
-            {currentUser?.role !== 'student' && (
+
+            {/* ── ADMIN ── */}
+            {currentUser?.role === 'admin' && (
               <>
-                {currentUser?.role === 'admin' && (
-                  <>
-                    <li>
-                      <Link to="/dashboard/students" className="flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition group" onClick={() => setSidebarOpen(false)}>
-                        <span className={`mr-3 ${iconColor}`}><People theme="outline" size="22" /></span>
-                        Estudiantes
-                      </Link>
-                    </li>
-                    <li>
-                      <Link to="/dashboard/grades" className="flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition group" onClick={() => setSidebarOpen(false)}>
-                        <span className={`mr-3 ${iconColor}`}><Book theme="outline" size="22" /></span>
-                        Notas
-                      </Link>
-                    </li>
-                    <li>
-                      <Link to="/dashboard/attendance" className="flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition group" onClick={() => setSidebarOpen(false)}>
-                        <span className={`mr-3 ${iconColor}`}><Calendar theme="outline" size="22" /></span>
-                        Asistencia
-                      </Link>
-                    </li>
-                    <li>
-                      <button onClick={() => setCareersExpanded(!careersExpanded)} className="w-full flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition group">
-                        <span className={`mr-3 ${iconColor}`}><DegreeHat theme="outline" size="22" /></span>
-                        Carreras
+                <NavLink to="/dashboard/students"    icon={People}         label="Estudiantes" />
+                <NavLink to="/dashboard/grades"      icon={Book}           label="Notas" />
+                <NavLink to="/dashboard/attendance"  icon={Calendar}       label="Asistencia" />
+
+                {/* Carreras colapsable */}
+                <li>
+                  <button
+                    onClick={() => { 
+                      if (sidebarCollapsed) {
+                        setSidebarCollapsed(false);
+                        setCareersExpanded(true);
+                      } else {
+                        setCareersExpanded(!careersExpanded);
+                      }
+                    }}
+                    title={sidebarCollapsed ? 'Carreras' : ''}
+                    className={`w-full flex items-center py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition ${
+                      sidebarCollapsed ? 'justify-center px-0' : 'px-6'
+                    }`}
+                  >
+                    <span className={`shrink-0 ${iconColor} ${sidebarCollapsed ? '' : 'mr-3'}`}>
+                      <DegreeHat theme="outline" size="22" />
+                    </span>
+                    {!sidebarCollapsed && (
+                      <>
+                        <span>Carreras</span>
                         <svg className={`ml-auto w-4 h-4 transition-transform ${careersExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                         </svg>
-                      </button>
-                      {careersExpanded && (
-                        <ul className="bg-blue-50">
-                          <li>
-                            <Link to="/dashboard/careers" className="flex items-center px-12 py-3 text-gray-700 hover:bg-blue-100 hover:text-blue-900 transition text-sm" onClick={() => setSidebarOpen(false)}>
-                              <span className="w-1 h-1 rounded-full bg-blue-600 mr-3"></span>
-                              Gestionar Carreras
-                            </Link>
-                          </li>
-                          <li>
-                            <Link to="/dashboard/general-modules" className="flex items-center px-12 py-3 text-gray-700 hover:bg-blue-100 hover:text-blue-900 transition text-sm" onClick={() => setSidebarOpen(false)}>
-                              <span className="w-1 h-1 rounded-full bg-blue-600 mr-3"></span>
-                              Módulos Generales
-                            </Link>
-                          </li>
-                          <li>
-                            <Link to="/dashboard/courses" className="flex items-center px-12 py-3 text-gray-700 hover:bg-blue-100 hover:text-blue-900 transition text-sm" onClick={() => setSidebarOpen(false)}>
-                              <span className="w-1 h-1 rounded-full bg-blue-600 mr-3"></span>
-                              Cursos
-                            </Link>
-                          </li>
-                        </ul>
-                      )}
-                    </li>
-                    <li>
-                      <Link to="/dashboard/teachers" className="flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition group" onClick={() => setSidebarOpen(false)}>
-                        <span className={`mr-3 ${iconColor}`}><User theme="outline" size="22" /></span>
-                        Profesores
-                      </Link>
-                    </li>
-                    <li>
-                      <Link to="/dashboard/finances" className="flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition group" onClick={() => setSidebarOpen(false)}>
-                        <span className={`mr-3 ${iconColor}`}><ChartHistogram theme="outline" size="22" /></span>
-                        Finanzas
-                      </Link>
-                    </li>
-                    <li>
-                      <Link to="/dashboard/admin" className="flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition group" onClick={() => setSidebarOpen(false)}>
-                        <span className={`mr-3 ${iconColor}`}><SettingTwo theme="outline" size="22" /></span>
-                        Administración
-                      </Link>
-                    </li>
-                  </>
-                )}
-                {currentUser?.role === 'teacher' && (
-                  <>
-                    <li>
-                      <Link to="/dashboard/grades" className="flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition group" onClick={() => setSidebarOpen(false)}>
-                        <span className={`mr-3 ${iconColor}`}><Book theme="outline" size="22" /></span>
-                        Notas
-                      </Link>
-                    </li>
-                    <li>
-                      <Link to="/dashboard/attendance" className="flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition group" onClick={() => setSidebarOpen(false)}>
-                        <span className={`mr-3 ${iconColor}`}><Calendar theme="outline" size="22" /></span>
-                        Asistencia
-                      </Link>
-                    </li>
-                    {/* Configuración como última opción solo para teacher */}
-                    <li>
-                      <Link to="/dashboard/settings" className="flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 hover:text-blue-900 transition group" onClick={() => setSidebarOpen(false)}>
-                        <span className={`mr-3 ${iconColor}`}><SettingTwo theme="outline" size="22" /></span>
-                        Configuración
-                      </Link>
-                    </li>
-                  </>
-                )}
+                      </>
+                    )}
+                  </button>
+                  {careersExpanded && !sidebarCollapsed && (
+                    <ul className="bg-blue-50">
+                      {[
+                        { to: '/dashboard/careers',        label: 'Gestionar Carreras' },
+                        { to: '/dashboard/general-modules', label: 'Módulos Generales' },
+                        { to: '/dashboard/courses',        label: 'Cursos' },
+                      ].map(item => (
+                        <li key={item.to}>
+                          <Link to={item.to} onClick={() => setSidebarOpen(false)} className="flex items-center px-12 py-3 text-gray-700 hover:bg-blue-100 text-sm">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mr-3 shrink-0" />{item.label}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+
+                <NavLink to="/dashboard/teachers"   icon={User}           label="Profesores" />
+                <NavLink to="/dashboard/finances"   icon={ChartHistogram} label="Finanzas" />
+                <NavLink to="/dashboard/admin"      icon={SettingTwo}     label="Administración" />
               </>
             )}
-            {/* Configuración para estudiantes */}
+
+            {/* ── TEACHER ── */}
+            {currentUser?.role === 'teacher' && (
+              <>
+                <NavLink to="/dashboard/grades"     icon={Book}       label="Notas" />
+                <NavLink to="/dashboard/attendance" icon={Calendar}   label="Asistencia" />
+                <NavLink to="/dashboard/settings"   icon={SettingTwo} label="Configuración" />
+              </>
+            )}
+
+            {/* ── STUDENT ── */}
             {currentUser?.role === 'student' && (
               <>
-                <li>
-                  <Link to="/dashboard" className={`flex items-center px-6 py-3 transition group ${location.pathname === '/dashboard' ? activeLink : 'text-gray-700 hover:bg-blue-50 hover:text-blue-900'}`} onClick={() => setSidebarOpen(false)}>
-                    <span className={`mr-3 ${location.pathname === '/dashboard' ? 'text-blue-900' : iconColor}`}><Dashboard theme={location.pathname === '/dashboard' ? "filled" : "outline"} size="22" /></span>
-                    Inicio
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/dashboard/academic" className={`flex items-center px-6 py-3 transition group ${location.pathname === '/dashboard/academic' ? activeLink : 'text-gray-700 hover:bg-blue-50 hover:text-blue-900'}`} onClick={() => setSidebarOpen(false)}>
-                    <span className={`mr-3 ${location.pathname === '/dashboard/academic' ? 'text-blue-900' : iconColor}`}><Book theme={location.pathname === '/dashboard/academic' ? "filled" : "outline"} size="22" /></span>
-                    Académico
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/dashboard/finance" className={`flex items-center px-6 py-3 transition group ${location.pathname === '/dashboard/finance' ? activeLink : 'text-gray-700 hover:bg-blue-50 hover:text-blue-900'}`} onClick={() => setSidebarOpen(false)}>
-                    <span className={`mr-3 ${location.pathname === '/dashboard/finance' ? 'text-blue-900' : iconColor}`}><Wallet theme={location.pathname === '/dashboard/finance' ? "filled" : "outline"} size="22" /></span>
-                    Finanzas
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/dashboard/settings" className={`flex items-center px-6 py-3 transition group ${location.pathname === '/dashboard/settings' ? activeLink : 'text-gray-700 hover:bg-blue-50 hover:text-blue-900'}`} onClick={() => setSidebarOpen(false)}>
-                    <span className={`mr-3 ${location.pathname === '/dashboard/settings' ? 'text-blue-900' : iconColor}`}><SettingTwo theme={location.pathname === '/dashboard/settings' ? "filled" : "outline"} size="22" /></span>
-                    Configuración
-                  </Link>
-                </li>
+                <NavLink to="/dashboard"           icon={Dashboard}  label="Inicio" />
+                <NavLink to="/dashboard/academic"  icon={Book}       label="Académico" />
+                <NavLink to="/dashboard/finance"   icon={Wallet}     label="Finanzas" />
+                <NavLink to="/dashboard/settings"  icon={SettingTwo} label="Configuración" />
               </>
             )}
+
           </ul>
         </nav>
-        {/* Usuario y logout */}
-        <div className="mt-auto mb-2 px-6">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="inline-block bg-blue-100 text-blue-900 font-bold rounded-full px-3 py-1 text-xs capitalize">{currentUser?.name || 'Usuario'}</span>
-            <span className="text-xs text-gray-500">{currentUser?.role || 'Rol'}</span>
-          </div>
-          <button 
-            onClick={openModal}
-            className="w-full flex items-center justify-center px-4 py-2 text-sm text-white bg-red-500 rounded-md hover:bg-red-600"
+
+        {/* Footer sidebar */}
+        <div className="mt-auto">
+
+          {/* Botón colapsar — solo escritorio, dentro del sidebar, sin interferir */}
+          <button
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            title={sidebarCollapsed ? 'Expandir menú' : 'Contraer menú'}
+            className={`
+              hidden md:flex w-full items-center py-3 border-t border-blue-100
+              text-blue-400 hover:text-blue-700 hover:bg-blue-50
+              transition-all duration-200
+              ${sidebarCollapsed ? 'justify-center px-0' : 'justify-between px-5'}
+            `}
           >
-            <span className="mr-2"><Logout theme="outline" size="20" fill="#fff" /></span>
-            Cerrar sesión
+            {!sidebarCollapsed && (
+              <span className="text-[10px] font-black uppercase tracking-widest text-blue-300">Contraer menú</span>
+            )}
+            <div className={`flex items-center justify-center rounded-lg transition-all duration-200 ${
+              sidebarCollapsed
+                ? 'w-8 h-8 bg-blue-50 border border-blue-200 hover:bg-blue-100'
+                : 'w-7 h-7 bg-blue-50 border border-blue-100'
+            }`}>
+              <svg
+                className={`w-3.5 h-3.5 transition-transform duration-300 ${sidebarCollapsed ? 'rotate-180' : ''}`}
+                fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </div>
           </button>
+
+          {/* Separador */}
+          <div className="border-t border-blue-100" />
+
+          {/* Usuario + Logout */}
+          <div className={`pb-4 pt-2 ${sidebarCollapsed ? 'px-2' : 'px-4'}`}>
+            {!sidebarCollapsed && (
+              <div className="flex items-center gap-2 mb-2">
+                <span className="bg-blue-100 text-blue-900 font-bold rounded-full px-3 py-1 text-xs capitalize truncate">
+                  {currentUser?.name || 'Usuario'}
+                </span>
+                <span className="text-xs text-gray-400 shrink-0">{currentUser?.role || 'Rol'}</span>
+              </div>
+            )}
+            <button
+              onClick={openModal}
+              title="Cerrar sesión"
+              className={`w-full flex items-center justify-center py-2 text-sm text-white bg-red-500 rounded-lg hover:bg-red-600 transition-all ${
+                sidebarCollapsed ? 'px-1' : 'gap-2 px-3'
+              }`}
+            >
+              <Logout theme="outline" size="18" fill="#fff" />
+              {!sidebarCollapsed && <span>Cerrar sesión</span>}
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Modal de confirmación */}
+      {/* Modal confirmación logout */}
       <Modal
         isOpen={isModalOpen}
         onRequestClose={closeModal}
@@ -227,56 +245,28 @@ const DashboardLayout = () => {
       >
         <h2 className="text-lg font-bold mb-4">¿Estás seguro de que deseas cerrar sesión?</h2>
         <div className="flex justify-end gap-4">
-          <button
-            onClick={closeModal}
-            className="px-4 py-2 bg-gray-300 rounded-md hover:bg-gray-400"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={handleLogout}
-            className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
-          >
-            Cerrar sesión
-          </button>
+          <button onClick={closeModal} className="px-4 py-2 bg-gray-300 rounded-md hover:bg-gray-400">Cancelar</button>
+          <button onClick={handleLogout} className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600">Cerrar sesión</button>
         </div>
       </Modal>
 
-      {/* Main content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <header className="bg-white shadow-sm z-10">
-          <div className="flex items-center justify-between px-6 py-4">
-            <button 
-              className="md:hidden text-gray-500 focus:outline-none"
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-            >
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
-            <div className="flex items-center space-x-4">
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3">
-                  <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                </span>
-                <input
-                  type="text"
-                  className="pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  placeholder="Buscar..."
-                />
-              </div>
-            </div>
-          </div>
-        </header>
+      {/* ═══ MAIN CONTENT ═══ */}
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        {/* Hamburguesa — solo móvil */}
+        <div className="md:hidden bg-white shadow-sm border-b border-gray-100 px-4 py-3 flex items-center gap-3">
+          <button className="text-gray-500 hover:text-blue-700 focus:outline-none" onClick={() => setSidebarOpen(!sidebarOpen)}>
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <span className="text-sm font-bold text-blue-900 uppercase tracking-widest">Instituto Técnico</span>
+        </div>
 
-        {/* Content */}
-        <main className="flex-1 overflow-y-auto p-6 bg-gray-50">
+        <main className="flex-1 overflow-y-auto bg-gray-50 pl-4 md:pl-8 lg:pl-10 pr-0 py-8 transition-all duration-300">
           <Outlet />
         </main>
       </div>
+
     </div>
   );
 };

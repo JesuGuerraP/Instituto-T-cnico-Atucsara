@@ -113,15 +113,15 @@ const StudentDashboard = () => {
             if (careerDoc) {
               const modulesSnap = await getDocs(collection(db, 'careers', careerDoc.id, 'modules'));
               setCareerModules(modulesSnap.docs.map(m => ({ id: m.id, ...m.data() })));
-              setCareerSeminarios(Array.isArray(careerDoc.seminarios) ? careerDoc.seminarios.map((s, idx) => ({ id: `seminario${idx+1}`, ...s })) : []);
+              setCareerSeminarios(Array.isArray(careerDoc.seminarios) ? careerDoc.seminarios.map((s, idx) => ({ id: `seminario${idx + 1}`, ...s })) : []);
             }
           }
 
           // Fetch General Modules
           const gmSnap = await getDocs(collection(db, 'generalModules'));
-          setGeneralModules(gmSnap.docs.map(doc => ({ 
-            id: doc.id, 
-            ...doc.data(), 
+          setGeneralModules(gmSnap.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
             isGeneral: true,
             nombre: doc.data().nombre + (doc.data().nombre?.includes('(General)') ? '' : ' (General)')
           })));
@@ -268,7 +268,7 @@ const StudentDashboard = () => {
   const calcularPromedioFinal = (notas) => {
     const notaHabilitacion = notas.find(n => n.groupId === 'HABILITACION' || n.groupName === 'HABILITACION');
     if (notaHabilitacion) return { finalGrade: parseFloat(notaHabilitacion.grade).toFixed(2), isHabilitacion: true };
-    
+
     const getNota = (grupo) => {
       const gNotas = notas.filter(n => n.groupId === grupo || n.groupName === grupo);
       return gNotas.length ? gNotas.reduce((acc, n) => acc + parseFloat(n.grade), 0) / gNotas.length : 0;
@@ -289,15 +289,15 @@ const StudentDashboard = () => {
       {/* Contenido Dinámico */}
       <div className="max-w-7xl mx-auto py-8 px-4">
         {activeSection === 'home' && (
-          <DashboardHome 
-            studentInfo={studentInfo} 
-            currentUser={currentUser} 
-            stats={getStats()} 
+          <DashboardHome
+            studentInfo={studentInfo}
+            currentUser={currentUser}
+            stats={getStats()}
           />
         )}
 
         {activeSection === 'academic' && (
-          <AcademicSection 
+          <AcademicSection
             notasPorModulo={notasPorModulo}
             findModuleByName={findModuleByName}
             getModuleSemester={getModuleSemester}
@@ -313,7 +313,7 @@ const StudentDashboard = () => {
         )}
 
         {activeSection === 'finance' && (
-          <FinanceSection 
+          <FinanceSection
             payments={payments}
             semesterPrices={semesterPrices}
             studentInfo={studentInfo}
@@ -325,9 +325,9 @@ const StudentDashboard = () => {
         )}
 
         {activeSection === 'settings' && (
-          <SettingsSection 
-            studentInfo={studentInfo} 
-            currentUser={currentUser} 
+          <SettingsSection
+            studentInfo={studentInfo}
+            currentUser={currentUser}
           />
         )}
       </div>
@@ -336,8 +336,8 @@ const StudentDashboard = () => {
       {showFinanceReceiptModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm print:bg-transparent">
           <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-2xl w-full relative border-t-8 border-[#23408e] print:shadow-none print:border-0 print:p-0 print:rounded-none animate-in">
-            <button 
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 print:hidden text-2xl font-bold" 
+            <button
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 print:hidden text-2xl font-bold"
               onClick={() => setShowFinanceReceiptModal(false)}
             >
               &times;
@@ -350,8 +350,8 @@ const StudentDashboard = () => {
               />
             </div>
             <div className="flex justify-end mt-8 gap-4 print:hidden">
-              <button 
-                onClick={() => setShowFinanceReceiptModal(false)} 
+              <button
+                onClick={() => setShowFinanceReceiptModal(false)}
                 className="px-6 py-2 rounded-xl text-gray-500 font-bold hover:bg-gray-100"
               >
                 Cerrar

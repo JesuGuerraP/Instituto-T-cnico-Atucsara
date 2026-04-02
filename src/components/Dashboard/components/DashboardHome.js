@@ -1,8 +1,8 @@
 import React from 'react';
-import { 
-  IdCard, 
-  Calendar, 
-  GoldMedal, 
+import {
+  IdCard,
+  Calendar,
+  GoldMedal,
   ArrowRightUp,
   Announcement,
   CheckCorrect,
@@ -12,11 +12,11 @@ import {
 import PremiumCard from './PremiumCard';
 
 const DashboardHome = ({ studentInfo, currentUser, stats }) => {
-  const { 
-    moduloResumenNombre, 
-    porcentajeResumen, 
-    modulosCursando, 
-    modulosAprobados, 
+  const {
+    moduloResumenNombre,
+    porcentajeResumen,
+    modulosCursando,
+    modulosAprobados,
     seminariosAprobados,
     carrera,
     porcentajeProgresoReal,
@@ -134,7 +134,7 @@ const DashboardHome = ({ studentInfo, currentUser, stats }) => {
             <p className="text-sm text-gray-500 font-medium leading-relaxed">
               Has completado con éxito los siguientes módulos y seminarios. ¡Sigue así!
             </p>
-            
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
               {modulosAprobados.length > 0 || seminariosAprobados.length > 0 ? (
                 <>
@@ -201,7 +201,7 @@ const DashboardHome = ({ studentInfo, currentUser, stats }) => {
 
               {/* Segmented Progress bar (Roadmap) */}
               <div className="space-y-4">
-                 <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-4 gap-2">
                   {[
                     { label: 'Sem 1', val: progresoPorEtapa?.semestre1 || 0 },
                     { label: 'Sem 2', val: progresoPorEtapa?.semestre2 || 0 },
@@ -209,8 +209,8 @@ const DashboardHome = ({ studentInfo, currentUser, stats }) => {
                     { label: 'Prác.', val: progresoPorEtapa?.practica || 0 }
                   ].map((stage, i) => (
                     <div key={i} className="space-y-2">
-                       <div className="h-3 bg-gray-100 rounded-full overflow-hidden border border-gray-200 p-[2px]">
-                        <div 
+                      <div className="h-3 bg-gray-100 rounded-full overflow-hidden border border-gray-200 p-[2px]">
+                        <div
                           className={`h-full rounded-full transition-all duration-1000 ${stage.val === 100 ? 'bg-green-500' : 'bg-[#23408e]'}`}
                           style={{ width: `${stage.val}%` }}
                         />
@@ -232,7 +232,7 @@ const DashboardHome = ({ studentInfo, currentUser, stats }) => {
                 <p className="text-xl font-black text-gray-900">{seminariosAprobados.length}</p>
               </div>
             </div>
-            
+
             <div className="p-5 rounded-2xl bg-[#effaf4] border border-[#d1f2e1]">
               <div className="flex items-center gap-3 mb-3">
                 <div className="p-2 rounded-lg bg-white text-[#009245] shadow-sm">
