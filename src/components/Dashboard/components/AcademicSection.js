@@ -25,13 +25,22 @@ const AcademicSection = ({
   findModule,
   careerSeminarios,
   toggleSemester,
-  openSemesters
+  openSemesters,
+  courseModules = []
 }) => {
+  const [selectedScope, setSelectedScope] = useState('career');
   const [modulosNotasVisibles, setModulosNotasVisibles] = useState({});
   const [showGradeReportModal, setShowGradeReportModal] = useState(false);
   const [showFullReportModal, setShowFullReportModal] = useState(false);
   const [selectedModuleForReport, setSelectedModuleForReport] = useState(null);
   const [detailRecord, setDetailRecord] = useState(null);
+  
+  // Nuevo: Efecto para autoseleccionar ámbito si el estudiante solo tiene cursos
+  React.useEffect(() => {
+    if ((!studentInfo?.career || studentInfo?.career === '—') && courseModules.length > 0) {
+      setSelectedScope('course');
+    }
+  }, [studentInfo, courseModules]);
 
   const toggleNotasModulo = (modulo) => {
     setModulosNotasVisibles(prev => ({ ...prev, [modulo]: !prev[modulo] }));
@@ -55,15 +64,29 @@ const AcademicSection = ({
     setShowFullReportModal(false);
   };
 
-  // Agrupar TODOS los módulos asignados por semestre (no solo los que tienen notas)
-  const modulosAgrupados = (studentInfo?.modulosAsignados || []).reduce((acc, modAsignado) => {
+  // Agrupar módulos de CARRERA por semestre
+  const modulosCarreraAgrupados = (studentInfo?.modulosAsignados || []).reduce((acc, modAsignado) => {
     const modDetails = findModule(modAsignado.id);
-    if (!modDetails) return acc;
-    const semestre = getModuleSemester(modDetails);
+    const semestre = modDetails ? getModuleSemester(modDetails) : 'General';
     if (!acc[semestre]) acc[semestre] = [];
-    acc[semestre].push({ ...modDetails, ...modAsignado });
+    acc[semestre].push({ 
+      id: modAsignado.id, 
+      nombre: modAsignado.nombre || modDetails?.nombre || 'Módulo', 
+      ...modDetails, 
+      ...modAsignado 
+    });
     return acc;
   }, {});
+
+  // Agrupar módulos de CURSOS (por el nombre del curso o solo una lista)
+  const modulosCursoAgrupados = courseModules.reduce((acc, mod) => {
+    const courseName = mod.courseName || 'Mi Curso';
+    if (!acc[courseName]) acc[courseName] = [];
+    acc[courseName].push(mod);
+    return acc;
+  }, {});
+
+  const currentModulosAgrupados = selectedScope === 'career' ? modulosCarreraAgrupados : modulosCursoAgrupados;
 
   // Agrupar asistencia por semestre
   const asistenciaPorModulo = {};
@@ -80,8 +103,19 @@ const AcademicSection = ({
   });
 
   const asistenciaPorSemestre = Object.values(asistenciaPorModulo).reduce((acc, modRec) => {
-    const moduleDetails = findModuleByName(modRec.moduleName);
-    const semester = getModuleSemester(moduleDetails);
+    const moduleDetails = findModuleByName(modRec.moduleName) || 
+                         (courseModules.find(m => m.nombre === modRec.moduleName)) ||
+                         (studentInfo?.modulosAsignados?.find(m => m.nombre === modRec.moduleName));
+    
+    // Si no hay detalles ni del nombre, lo categorizamos como carrera por defecto para evitar que desaparezca
+    const isActuallyCourse = moduleDetails?.isCourse || modRec.scope === 'course';
+    
+    // Filtrar por ámbito seleccionado de forma más elástica
+    if (selectedScope === 'career' && isActuallyCourse) return acc;
+    if (selectedScope === 'course' && !isActuallyCourse) return acc;
+    if (!moduleDetails && selectedScope === 'course') return acc; // Si realmente no hay nada y estamos en curso, lo dejamos
+
+    const semester = moduleDetails ? getModuleSemester(moduleDetails) : 'General';
     if (!acc[semester]) acc[semester] = [];
     acc[semester].push(modRec);
     return acc;
@@ -90,8 +124,27 @@ const AcademicSection = ({
   return (
     <div className="space-y-8 animate-in">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <h1 className="text-3xl font-black text-[#23408e] tracking-tight">Registro Académico</h1>
-        <div className="flex gap-2">
+        <div className="space-y-1">
+          <h1 className="text-3xl font-black text-[#23408e] tracking-tight">Registro Académico</h1>
+          <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Instituto Técnico Atucsara</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {courseModules.length > 0 && (
+            <div className="flex bg-gray-100 p-1 rounded-xl mr-2">
+              <button 
+                onClick={() => setSelectedScope('career')}
+                className={`px-4 py-1.5 rounded-lg text-xs font-black transition-all ${selectedScope === 'career' ? 'bg-white text-[#23408e] shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+              >
+                Carrera
+              </button>
+              <button 
+                onClick={() => setSelectedScope('course')}
+                className={`px-4 py-1.5 rounded-lg text-xs font-black transition-all ${selectedScope === 'course' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+              >
+                Cursos
+              </button>
+            </div>
+          )}
           <button 
             onClick={handleOpenFullReport}
             className="flex items-center gap-2 px-4 py-2 bg-[#23408e] text-white rounded-xl shadow-lg hover:shadow-blue-200 transition-all font-bold text-sm"
@@ -104,8 +157,8 @@ const AcademicSection = ({
 
       {/* Calificaciones y Módulos */}
       <div className="space-y-6">
-        {Object.keys(modulosAgrupados).length > 0 ? (
-          Object.entries(modulosAgrupados)
+        {Object.keys(currentModulosAgrupados).length > 0 ? (
+          Object.entries(currentModulosAgrupados)
             .sort(([semA], [semB]) => semA.localeCompare(semB))
             .map(([semestre, modulos]) => (
               <div key={semestre} className="mb-8">
@@ -114,19 +167,25 @@ const AcademicSection = ({
                   className="w-full flex items-center justify-between p-5 bg-white rounded-2xl hover:shadow-md transition-all group border border-gray-100"
                 >
                   <div className="flex items-center gap-5">
-                    <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center font-black text-[#23408e] text-lg shadow-inner">
-                      {semestre}
+                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-lg shadow-inner ${selectedScope === 'career' ? 'bg-blue-50 text-[#23408e]' : 'bg-emerald-50 text-emerald-600'}`}>
+                      {selectedScope === 'career' ? semestre : <Book size="20" />}
                     </div>
                     <div className="text-left">
-                      <h4 className="font-black text-gray-900 text-lg">Semestre {semestre}</h4>
-                      <p className="text-[9px] font-black text-blue-500 uppercase tracking-[0.15em] leading-none mt-1">Calificaciones Académicas</p>
+                      <h4 className="font-black text-gray-900 text-lg">
+                        {selectedScope === 'career' ? `Semestre ${semestre}` : semestre}
+                      </h4>
+                      <p className={`text-[9px] font-black uppercase tracking-[0.15em] leading-none mt-1 ${selectedScope === 'career' ? 'text-blue-500' : 'text-emerald-500'}`}>
+                        {selectedScope === 'career' ? 'Calificaciones Académicas' : 'Módulos del Curso'}
+                      </p>
                       <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">
                         {modulos.length} Módulos inscritos
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
-                    <span className="hidden md:inline-flex px-3 py-1 rounded-full bg-green-50 text-green-600 text-[10px] font-black uppercase border border-green-100">
+                    <span className={`hidden md:inline-flex px-3 py-1 rounded-full text-[10px] font-black uppercase border ${
+                        selectedScope === 'career' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                    }`}>
                       {modulos.filter(m => m.estado === 'aprobado').length} Aprobados
                     </span>
                     <Down theme="outline" size="20" className={`text-gray-400 transform transition-transform duration-300 ${openSemesters[`grades-${semestre}`] ? 'rotate-180' : ''}`} />
@@ -138,12 +197,20 @@ const AcademicSection = ({
                     {modulos.map((mod) => {
                       const notas = notasPorModulo[mod.nombre] || [];
                       const promedio = notas.length > 0 ? calcularPromedioFinal(notas) : null;
-                      const isAprobado = mod.estado === 'aprobado' || (promedio && parseFloat(promedio.finalGrade) >= 3.0);
+                      
+                      // Unificar normalización de estado
+                      const status = (mod.estado || 'pendiente').toLowerCase();
+                      const isAprobado = status === 'aprobado' || (promedio && parseFloat(promedio.finalGrade) >= 3.0);
                       
                       return (
                         <div key={mod.id} className="group bg-white rounded-3xl p-6 border border-gray-100 shadow-sm hover:shadow-xl hover:border-blue-100 transition-all duration-300 relative overflow-hidden">
                           {/* Status Indicator Bar */}
-                          <div className={`absolute top-0 left-0 w-full h-1.5 ${mod.estado === 'aprobado' ? 'bg-emerald-500' : mod.estado === 'reprobado' ? 'bg-red-500' : mod.estado === 'cursando' ? 'bg-blue-500' : 'bg-gray-200'}`} />
+                          <div className={`absolute top-0 left-0 w-full h-1.5 ${
+                            status === 'aprobado' ? 'bg-emerald-500' : 
+                            status === 'reprobado' ? 'bg-red-500' : 
+                            status === 'cursando' ? 'bg-blue-500' : 
+                            'bg-gray-200'
+                          }`} />
                           
                           <div className="flex justify-between items-start mb-6 pt-2">
                             <div className="flex-1 pr-4">
@@ -152,12 +219,12 @@ const AcademicSection = ({
                               </h5>
                               <div className="flex flex-wrap gap-2">
                                 <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${
-                                  mod.estado === 'aprobado' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 
-                                  mod.estado === 'reprobado' ? 'bg-red-50 text-red-700 border-red-100' :
-                                  mod.estado === 'cursando' ? 'bg-blue-50 text-blue-700 border-blue-100' : 
+                                  status === 'aprobado' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 
+                                  status === 'reprobado' ? 'bg-red-50 text-red-700 border-red-100' :
+                                  status === 'cursando' ? 'bg-blue-50 text-blue-700 border-blue-100' : 
                                   'bg-gray-50 text-gray-400 border-gray-100'
                                 }`}>
-                                  {mod.estado || 'Pendiente'}
+                                  {status}
                                 </span>
                               </div>
                             </div>

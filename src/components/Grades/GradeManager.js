@@ -415,13 +415,13 @@ const GradeManager = () => {
                     <div className="flex flex-wrap gap-2">
                         {["1", "2", "3"].map(num => (
                             <button key={num}
-                                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${selectedSemester === num ? "bg-[#23408e] text-white" : "text-gray-600 hover:bg-gray-50"}`}
+                                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${selectedSemester === num ? "bg-[#23408e] text-white" : "text-gray-600 hover:bg-gray-50 bg-white border border-gray-100"}`}
                                 onClick={() => setSelectedSemester(num)}>
                                 Semestre {num}
                             </button>
                         ))}
                         <button
-                            className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${!selectedSemester ? "bg-gray-100 text-gray-700" : "text-gray-600 hover:bg-gray-50"}`}
+                            className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${!selectedSemester ? "bg-gray-100 text-gray-700 font-bold" : "text-gray-600 hover:bg-gray-50 bg-white border border-gray-100"}`}
                             onClick={() => setSelectedSemester("")}>
                             Todos
                         </button>

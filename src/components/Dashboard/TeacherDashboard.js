@@ -63,7 +63,8 @@ const TeacherDashboard = () => {
         const teacherFullName = (teacher.name + ' ' + (teacher.lastName || '')).trim();
 
         // Career modules
-        const careersSnap = await getDocs(collection(db, 'careers'));
+        const careersSnap  = await getDocs(collection(db, 'careers'));
+        const studentsSnap = await getDocs(collection(db, 'students'));
         let modulos = [];
         let carreras = new Set();
         let sesionesTotales = 0;
@@ -111,16 +112,83 @@ const TeacherDashboard = () => {
             sesionesTotales += parseInt(e.sabadosSemana || 0);
           });
         } catch (e) { console.warn('General modules:', e); }
+        
+        // Short courses modules
+        try {
+          const coursesSnap = await getDocs(collection(db, 'courses'));
+          for (const courseDoc of coursesSnap.docs) {
+            const courseData = courseDoc.data();
+            const modsSnap = await getDocs(collection(db, 'courses', courseDoc.id, 'modules'));
+            for (const md of modsSnap.docs) {
+              const m = md.data();
+              const matchId = m.profesorId && teacher?.id && m.profesorId === teacher.id;
+              const matchName = typeof m.profesorNombre === 'string' && m.profesorNombre.toLowerCase().includes(teacherFullName.toLowerCase());
+              
+              if (matchId || matchName) {
+                // Evitar duplicados en el arreglo de módulos por ID
+                if (!modulos.some(existingMod => existingMod.id === md.id)) {
+                  modulos.push({ 
+                    id: md.id, 
+                    ...m, 
+                    carrera: courseData.nombre, 
+                    courseId: courseDoc.id, 
+                    isCourse: true,
+                    semestre: 'Curso' // Label for grouping
+                  });
+                  carreras.add(courseData.nombre);
+                  sesionesTotales += parseInt(m.horas || 0) / 4;
+                }
+              }
+            }
+          }
+        } catch (e) { console.warn('Course modules:', e); }
 
         setModulosAsignados(modulos);
 
-        // Students
-        const studentsSnap = await getDocs(collection(db, 'students'));
         const allStudents = studentsSnap.docs.map(d => {
           const data = d.data();
           return { id: d.id, ...data, period: data.period || (data.createdAt ? calculatePeriod(data.createdAt) : 'Sin periodo') };
         }).filter(s => s.status === 'active');
-        const filtered = allStudents.filter(s => s.modulosAsignados?.some(ma => modulos.some(mod => mod.id === ma.id)));
+
+        // Filter students in career/general modules
+        let filtered = allStudents.filter(s => s.modulosAsignados?.some(ma => modulos.some(mod => !mod.isCourse && mod.id === ma.id)));
+        
+        // Add students from course modules
+        for (const mod of modulos.filter(m => m.isCourse)) {
+          try {
+            const courseStudentsSnap = await getDocs(collection(db, 'courses', mod.courseId, 'modules', mod.id, 'students'));
+            courseStudentsSnap.forEach(csd => {
+              const csData = csd.data();
+              // Buscar en la lista general o en la ya filtrada
+              let student = allStudents.find(s => s.id === csd.id) || filtered.find(f => f.id === csd.id);
+              
+              if (student) {
+                if (!student.courseModules) student.courseModules = [];
+                if (!student.courseModules.includes(mod.id)) student.courseModules.push(mod.id);
+                
+                // Persistir estado específico del módulo para la lógica grupal
+                student[`status_${mod.id}`] = csData.estado || 'pendiente';
+                
+                if (!filtered.some(f => f.id === student.id)) {
+                  filtered.push(student);
+                }
+              } else {
+                // Crear objeto mínimo si no existe en ningún lado
+                const newStudent = { 
+                  id: csd.id, 
+                  name: csData.name || 'Estudiante', 
+                  lastName: '', 
+                  status: 'active', 
+                  isCourseOnly: true,
+                  courseModules: [mod.id],
+                  [`status_${mod.id}`]: csData.estado || 'pendiente'
+                };
+                filtered.push(newStudent);
+              }
+            });
+          } catch (e) { console.warn(`Error fetching students for course module ${mod.id}:`, e); }
+        }
+        
         setEstudiantes(filtered);
 
         // Seminarios
@@ -156,15 +224,40 @@ const TeacherDashboard = () => {
   /* ─── ACTIONS ─── */
   const updateModuleStatus = async (studentId, moduleId, newStatus) => {
     try {
-      const ref = doc(db, 'students', studentId);
-      const snap = await getDoc(ref);
-      if (snap.exists()) {
-        const upd = snap.data().modulosAsignados.map(m => m.id === moduleId ? { ...m, estado: newStatus } : m);
-        await updateDoc(ref, { modulosAsignados: upd });
-        setEstudiantes(prev => prev.map(e => e.id === studentId ? { ...e, modulosAsignados: upd } : e));
-        toast.success('Estado actualizado');
+      const mod = modulosAsignados.find(m => m.id === moduleId);
+      if (!mod) return;
+
+      if (mod.isCourse) {
+        // Update in course subcollection
+        const ref = doc(db, 'courses', mod.courseId, 'modules', moduleId, 'students', studentId);
+        await updateDoc(ref, { estado: newStatus });
+        
+        // Update local state for reflected change
+        setEstudiantes(prev => prev.map(e => {
+          if (e.id === studentId) {
+             // We use a virtual property or just rely on state refresh
+             // For simplicity, we can update a local 'courseStatus' map if needed, 
+             // but here we just update the student object if we want it reactive
+             return { ...e, [`status_${moduleId}`]: newStatus };
+          }
+          return e;
+        }));
+        toast.success('Estado del curso actualizado');
+      } else {
+        // Career/General module (uses modulosAsignados)
+        const ref = doc(db, 'students', studentId);
+        const snap = await getDoc(ref);
+        if (snap.exists()) {
+          const upd = snap.data().modulosAsignados.map(m => m.id === moduleId ? { ...m, estado: newStatus } : m);
+          await updateDoc(ref, { modulosAsignados: upd });
+          setEstudiantes(prev => prev.map(e => e.id === studentId ? { ...e, modulosAsignados: upd } : e));
+          toast.success('Estado actualizado');
+        }
       }
-    } catch { toast.error('Error al actualizar'); }
+    } catch (error) {
+      console.error(error);
+      toast.error('Error al actualizar');
+    }
   };
 
   const updateSeminarioStatus = async (studentId, seminarioId, newStatus) => {
@@ -222,19 +315,30 @@ const TeacherDashboard = () => {
   // Dividir los módulos según los períodos a los que pertenecen los estudiantes
   const modulosPorPeriodo = [];
   modulosAsignados.forEach(mod => {
-    const estDelMod = estudiantes.filter(e => e.modulosAsignados?.some(m => m.id === mod.id));
-    if (estDelMod.length === 0) {
-      modulosPorPeriodo.push({ ...mod, virtualPeriod: 'Sin asignar', _estudiantes: [] });
+    const estDelMod = estudiantes.filter(e => {
+        if (mod.isCourse) {
+            return Array.isArray(e.courseModules) && e.courseModules.includes(mod.id);
+        }
+        return e.modulosAsignados?.some(ma => ma.id === mod.id);
+    });
+
+    if (mod.isCourse) {
+        // Para cursos, no dividimos por período virtual para evitar duplicidad visual innecesaria
+        modulosPorPeriodo.push({ ...mod, virtualPeriod: 'Sin asignar', _estudiantes: estDelMod });
     } else {
-      const byPeriod = estDelMod.reduce((acc, e) => {
-        const p = e.period || 'Sin periodo';
-        if (!acc[p]) acc[p] = [];
-        acc[p].push(e);
-        return acc;
-      }, {});
-      Object.keys(byPeriod).forEach(p => {
-        modulosPorPeriodo.push({ ...mod, virtualPeriod: p, _estudiantes: byPeriod[p] });
-      });
+        if (estDelMod.length === 0) {
+            modulosPorPeriodo.push({ ...mod, virtualPeriod: 'Sin asignar', _estudiantes: [] });
+        } else {
+            const byPeriod = estDelMod.reduce((acc, e) => {
+                const p = e.period || 'Sin periodo';
+                if (!acc[p]) acc[p] = [];
+                acc[p].push(e);
+                return acc;
+            }, {});
+            Object.keys(byPeriod).forEach(p => {
+                modulosPorPeriodo.push({ ...mod, virtualPeriod: p, _estudiantes: byPeriod[p] });
+            });
+        }
     }
   });
 
@@ -242,18 +346,28 @@ const TeacherDashboard = () => {
   const modulosAgrupados = modulosPorPeriodo.reduce((acc, mod) => {
     const sem = mod.semestre || 'Extra';
     const periodo = mod.virtualPeriod || 'Sin asignar';
-    const estados = mod._estudiantes.map(e => e.modulosAsignados?.find(m => m.id === mod.id)?.estado || 'pendiente');
+    const estados = mod._estudiantes.map(e => {
+        if (mod.isCourse) {
+            return e[`status_${mod.id}`] || e.estado || 'pendiente';
+        }
+        return e.modulosAsignados?.find(m => m.id === mod.id)?.estado || 'pendiente';
+    });
     const est = getEstadoModulo(estados);
 
     if (!acc[sem]) acc[sem] = {};
-    if (!acc[sem][periodo]) acc[sem][periodo] = { cursando: [], pendiente: [], aprobado: [] };
+    if (!acc[sem][periodo]) acc[sem][periodo] = { cursando: [], pendiente: [], aprobado: [], reprobado: [] };
     
     acc[sem][periodo][est].push({ ...mod, estadoCalculado: est, refEstudiantes: mod._estudiantes.length });
     return acc;
   }, {});
 
   const modulosCursando = modulosPorPeriodo.filter(mod => {
-    const estados = mod._estudiantes.map(e => e.modulosAsignados?.find(m => m.id === mod.id)?.estado || 'pendiente');
+    const estados = mod._estudiantes.map(e => {
+        if (mod.isCourse) {
+            return e[`status_${mod.id}`] || e.estado || 'pendiente';
+        }
+        return e.modulosAsignados?.find(m => m.id === mod.id)?.estado || 'pendiente';
+    });
     return getEstadoModulo(estados) === 'cursando';
   });
 
@@ -399,7 +513,7 @@ const TeacherDashboard = () => {
               {/* Card: Estudiantes — breakdown por semestre */}
               {(() => {
                 const porSem = estudiantes.reduce((acc, e) => {
-                  const s = e.semester || 'N/D';
+                  const s = (e.semester || e.semestre) ? String(e.semester || e.semestre) : (e.isCourseOnly || (Array.isArray(e.courseModules) && e.courseModules.length > 0) ? 'Curso' : 'N/D');
                   acc[s] = (acc[s] || 0) + 1;
                   return acc;
                 }, {});
@@ -413,7 +527,11 @@ const TeacherDashboard = () => {
                       </div>
                     </div>
                     <div className="space-y-1.5 pt-2 border-t border-slate-100">
-                      {Object.keys(porSem).sort((a,b)=>a-b).map(s => (
+                      {Object.keys(porSem).sort((a,b) => {
+                        if (a === 'Curso') return 1;
+                        if (b === 'Curso') return -1;
+                        return a.localeCompare(b);
+                      }).map(s => (
                         <div key={s} className="flex justify-between items-center">
                           <span className="text-xs font-bold text-slate-400">Semestre {s}</span>
                           <span className="text-xs font-black text-green-700 bg-green-50 px-2 py-0.5 rounded-full">{porSem[s]}</span>
@@ -670,6 +788,13 @@ const TeacherDashboard = () => {
                                           {allMods.map((mod, idx) => (
                                             <tr key={`${mod.id}-${idx}`} className="hover:bg-slate-50/50 transition-colors group">
                                               <td className="px-6 py-4">
+                                                {modulosAsignados.some(m => m.isCourse) && (
+                                                  <div className="flex items-center gap-2 mb-1.5">
+                                                    <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider border ${mod.isCourse ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-50 text-slate-400 border-slate-100'}`}>
+                                                      {mod.isCourse ? 'Curso' : 'Carrera'}
+                                                    </span>
+                                                  </div>
+                                                )}
                                                 <p className="font-black text-slate-800 text-sm leading-tight">{mod.nombre}</p>
                                                 {mod.virtualPeriod !== 'Sin asignar' && (
                                                   <span className="inline-block mt-1.5 text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md uppercase tracking-wider">
@@ -833,7 +958,9 @@ const TeacherDashboard = () => {
                   <h2 className="text-xl md:text-2xl font-black tracking-tight leading-none mb-3">{selectedModule.nombre}</h2>
                   <div className="flex flex-wrap items-center gap-2 text-white/90 text-[10px] font-black uppercase tracking-wider">
                     <span className="bg-white/20 px-2.5 py-1 rounded-md shadow-sm border border-white/10">{selectedModule.carrera}</span>
-                    <span className="bg-white/20 px-2.5 py-1 rounded-md shadow-sm border border-white/10">Semestre {selectedModule.semestre}</span>
+                    <span className="bg-white/20 px-2.5 py-1 rounded-md shadow-sm border border-white/10">
+                        {selectedModule.isCourse ? 'Curso' : `Semestre ${selectedModule.semestre}`}
+                    </span>
                     {selectedModule.virtualPeriod && selectedModule.virtualPeriod !== 'Sin asignar' && (
                       <span className="bg-emerald-500/80 px-2.5 py-1 rounded-md shadow-sm border border-emerald-400 text-white">
                         Cohorte: {selectedModule.virtualPeriod}
@@ -861,12 +988,18 @@ const TeacherDashboard = () => {
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
                     {estudiantes
-                      .filter(e => 
-                        e.modulosAsignados?.some(m => m.id === selectedModule.id) &&
-                        (selectedModule.virtualPeriod === 'Sin asignar' || (e.period === selectedModule.virtualPeriod))
-                      )
+                      .filter(e => {
+                        if (selectedModule.isCourse) {
+                          return e.courseModules?.includes(selectedModule.id);
+                        }
+                        return e.modulosAsignados?.some(m => m.id === selectedModule.id) &&
+                               (selectedModule.virtualPeriod === 'Sin asignar' || (e.period === selectedModule.virtualPeriod));
+                      })
                       .map(est => {
-                        const ma = est.modulosAsignados.find(m => m.id === selectedModule.id);
+                        const ma = !selectedModule.isCourse ? est.modulosAsignados.find(m => m.id === selectedModule.id) : null;
+                        const courseStatus = selectedModule.isCourse ? (est[`status_${selectedModule.id}`] || est.estado || 'pendiente') : null;
+                        const currentStatus = selectedModule.isCourse ? courseStatus : (ma?.estado || 'pendiente');
+                        const isDefinitivo = !selectedModule.isCourse ? ma?.esDefinitivo : false;
                         return (
                           <tr key={est.id} className="hover:bg-slate-50/50 transition-colors group">
                             <td className="px-8 py-5 align-middle">
@@ -887,12 +1020,12 @@ const TeacherDashboard = () => {
                             <td className="px-8 py-5 text-center align-middle">
                               <div className="relative inline-block text-left w-32">
                                 <select
-                                  value={ma?.estado || 'pendiente'}
+                                  value={currentStatus}
                                   onChange={e => updateModuleStatus(est.id, selectedModule.id, e.target.value)}
-                                  disabled={ma?.esDefinitivo}
+                                  disabled={isDefinitivo}
                                   className={`appearance-none w-full pl-4 pr-8 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all shadow-sm hover:shadow outline-none 
-                                    ${colorEstado(ma?.estado || 'pendiente')} 
-                                    ${ma?.esDefinitivo ? 'opacity-80 cursor-not-allowed bg-slate-50' : 'cursor-pointer'}
+                                    ${colorEstado(currentStatus)} 
+                                    ${isDefinitivo ? 'opacity-80 cursor-not-allowed bg-slate-50' : 'cursor-pointer'}
                                   `}
                                 >
                                   <option value="pendiente">Pendiente</option>

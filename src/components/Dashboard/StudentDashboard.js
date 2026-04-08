@@ -1,7 +1,7 @@
 import { useEffect, useState, useContext, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { db } from '../../firebaseConfig';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { AuthContext } from '../../context/AuthContext';
 import { MenuUnfold } from '@icon-park/react';
 
@@ -25,9 +25,12 @@ const StudentDashboard = () => {
   const [studentAttendance, setStudentAttendance] = useState([]);
   const [careerModules, setCareerModules] = useState([]);
   const [generalModules, setGeneralModules] = useState([]);
+  const [courseModules, setCourseModules] = useState([]);
   const [careerSeminarios, setCareerSeminarios] = useState([]);
   const [semesterPrices, setSemesterPrices] = useState({});
   const [openSemesters, setOpenSemesters] = useState({});
+  const [coursesMetadata, setCoursesMetadata] = useState({});
+  const [courseDiscounts, setCourseDiscounts] = useState({});
 
   // Finance Receipt States
   const [showFinanceReceiptModal, setShowFinanceReceiptModal] = useState(false);
@@ -36,12 +39,16 @@ const StudentDashboard = () => {
 
   // Helpers
   const findModule = useCallback((id) => {
-    return careerModules.find(m => m.id === id) || generalModules.find(m => m.id === id);
-  }, [careerModules, generalModules]);
+    return careerModules.find(m => m.id === id) || 
+           generalModules.find(m => m.id === id) ||
+           courseModules.find(m => m.id === id);
+  }, [careerModules, generalModules, courseModules]);
 
   const findModuleByName = useCallback((name) => {
-    return careerModules.find(m => m.nombre === name) || generalModules.find(m => m.nombre === name);
-  }, [careerModules, generalModules]);
+    return careerModules.find(m => m.nombre === name) || 
+           generalModules.find(m => m.nombre === name) ||
+           courseModules.find(m => m.nombre === name);
+  }, [careerModules, generalModules, courseModules]);
 
   const getModuleSemester = useCallback((module) => {
     if (!module) return 'General';
@@ -83,9 +90,21 @@ const StudentDashboard = () => {
 
       try {
         // Fetch Student Info
+        // Fetch Student Info - normalized email search
+        const studentEmail = currentUser.email?.trim().toLowerCase();
         const studentsSnap = await getDocs(query(collection(db, 'students'), where('email', '==', currentUser.email)));
         let student = null;
-        studentsSnap.forEach(doc => student = { id: doc.id, ...doc.data() });
+        
+        // Fallback search if exact email fails (try to find by lowercase if necessary)
+        if (studentsSnap.empty) {
+          const allStudents = await getDocs(collection(db, 'students'));
+          student = allStudents.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .find(s => s.email?.trim().toLowerCase() === studentEmail);
+        } else {
+          student = { id: studentsSnap.docs[0].id, ...studentsSnap.docs[0].data() };
+        }
+        
         setStudentInfo(student);
 
         if (student) {
@@ -99,7 +118,16 @@ const StudentDashboard = () => {
 
           // Fetch Payments
           const paymentsSnap = await getDocs(query(collection(db, 'payments'), where('studentId', '==', student.id)));
-          setPayments(paymentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+          setPayments(paymentsSnap.docs.map(doc => {
+            const data = doc.data();
+            // Force semester to 'Curso' for course-related payments for grouping consistency
+            const isCoursePayment = data.ambito === 'curso' || !!data.courseId || data.category?.includes('(Curso)') || data.category === 'Matrícula Curso';
+            return { 
+              id: doc.id, 
+              ...data,
+              semestre: isCoursePayment ? 'Curso' : (data.semestre || 'General')
+            };
+          }));
 
           // Fetch Attendance
           const attSnap = await getDocs(query(collection(db, 'attendance'), where('studentId', '==', student.id)));
@@ -131,6 +159,47 @@ const StudentDashboard = () => {
           const prices = {};
           pricesSnap.forEach(doc => prices[doc.id] = doc.data().value);
           setSemesterPrices(prices);
+
+          // Fetch Course Discounts
+          const cdSnap = await getDocs(query(collection(db, 'courseDiscounts'), where('studentId', '==', student.id)));
+          const cDiscounts = {};
+          cdSnap.forEach(doc => {
+            const data = doc.data();
+            cDiscounts[data.courseId] = data.discount || 0;
+          });
+          setCourseDiscounts(cDiscounts);
+
+          // Fetch Course Modules
+            let activeCourseModules = [];
+            let activeCoursesMeta = {};
+            for (const courseId of (student.courses || [])) {
+              try {
+                // Fetch course metadata
+                const courseDoc = await getDoc(doc(db, 'courses', courseId));
+                const courseData = courseDoc.exists() ? courseDoc.data() : { nombre: 'Curso', duracionMeses: 6 };
+                activeCoursesMeta[courseId] = courseData;
+                
+                const modulesSnap = await getDocs(collection(db, 'courses', courseId, 'modules'));
+                for (const modDoc of modulesSnap.docs) {
+                  // Check if student is assigned to this module
+                  const studentLinkSnap = await getDocs(query(collection(db, 'courses', courseId, 'modules', modDoc.id, 'students'), where('__name__', '==', student.id)));
+                  if (!studentLinkSnap.empty) {
+                    const linkData = studentLinkSnap.docs[0].data();
+                    activeCourseModules.push({
+                      id: modDoc.id,
+                      ...modDoc.data(),
+                      courseId: courseId,
+                      courseName: courseData.nombre,
+                      estado: linkData.estado || 'pendiente',
+                      isCourse: true,
+                      semestre: 'Curso'
+                    });
+                  }
+                }
+              } catch (e) { console.warn(`Error fetching course ${courseId}:`, e); }
+            }
+            setCourseModules(activeCourseModules);
+            setCoursesMetadata(activeCoursesMeta);
         }
       } catch (error) {
         console.error("Error fetching data: ", error);
@@ -158,44 +227,64 @@ const StudentDashboard = () => {
     let cursandoArr = [];
     let aprobadosArr = [];
 
-    if (studentInfo?.modulosAsignados) {
-      cursandoArr = Array.from(new Set(
-        studentInfo.modulosAsignados
-          .filter(m => m.estado === 'cursando')
-          .map(m => findModule(m.id)?.nombre)
-          .filter(Boolean)
-      ));
+    // Unificar todos los módulos para el resumen
+    const allAssignedModules = [
+      ...(studentInfo?.modulosAsignados || []).map(m => ({ ...m, source: 'career' })),
+      ...courseModules.map(m => ({ ...m, source: 'course' }))
+    ];
 
-      aprobadosArr = studentInfo.modulosAsignados
-        .filter(m => m.estado === 'aprobado')
-        .map(m => findModule(m.id)?.nombre || m.id);
+    cursandoArr = Array.from(new Set(
+      allAssignedModules
+        .filter(m => m.estado === 'cursando' || (m.source === 'course' && m.estado !== 'aprobado'))
+        .map(m => {
+          const baseName = m.nombre || findModule(m.id)?.nombre;
+          return m.source === 'course' ? `${m.courseName}: ${baseName}` : baseName;
+        })
+        .filter(Boolean)
+    ));
 
-      // Simple attendance resumen logic (from original code)
-      const cursandoFull = studentInfo.modulosAsignados.filter(m => m.estado === 'cursando');
-      if (cursandoFull.length > 0) {
-        let mejorModulo = null;
-        let mejorPorcentaje = -1;
-        cursandoFull.forEach(modAsignado => {
-          const registros = studentAttendance.filter(rec => (rec.moduleId === modAsignado.id || rec.moduleName === modAsignado.nombre || rec.moduleName === (findModule(modAsignado.id)?.nombre)));
-          let total = 0, asistidos = 0;
-          registros.forEach(rec => {
-            Object.values(rec.attendance || {}).forEach(val => {
-              total++;
-              if (val === true) asistidos++;
-            });
+    aprobadosArr = allAssignedModules
+      .filter(m => m.estado === 'aprobado')
+      .map(m => {
+        const baseName = m.nombre || findModule(m.id)?.nombre || m.id;
+        return m.source === 'course' ? `${m.courseName}: ${baseName}` : baseName;
+      });
+
+    // Asistencia resumen: buscar el módulo con mayor progreso entre TODO lo que cursa
+    const cursandoFull = allAssignedModules.filter(m => m.estado === 'cursando' || (m.source === 'course' && m.estado !== 'aprobado'));
+    if (cursandoFull.length > 0) {
+      let mejorModulo = null;
+      let mejorPorcentaje = -1;
+      
+      cursandoFull.forEach(modAsignado => {
+        const modName = modAsignado.nombre || findModule(modAsignado.id)?.nombre;
+        const registrations = studentAttendance.filter(rec => 
+          rec.moduleId === modAsignado.id || 
+          rec.moduleName === modName ||
+          rec.moduleId === (modAsignado.id + "_" + modAsignado.courseId) ||
+          (rec.moduleName && modName && rec.moduleName.toLowerCase() === modName.toLowerCase())
+        );
+        
+        let total = 0, asistidos = 0;
+        registrations.forEach(rec => {
+          Object.values(rec.attendance || {}).forEach(val => {
+            total++;
+            if (val === true) asistidos++;
           });
-          if (total > 0) {
-            let p = Math.round((asistidos / total) * 100);
-            if (p > mejorPorcentaje) {
-              mejorPorcentaje = p;
-              mejorModulo = registros[0].moduleName || findModule(modAsignado.id)?.nombre;
-            }
-          }
         });
-        if (mejorModulo) {
-          moduloResumenNombre = mejorModulo;
-          porcentajeResumen = mejorPorcentaje;
+        
+        if (total > 0) {
+          let p = Math.round((asistidos / total) * 100);
+          if (p >= mejorPorcentaje) {
+            mejorPorcentaje = p;
+            mejorModulo = modAsignado.source === 'course' ? `${modAsignado.courseName}: ${modName}` : modName;
+          }
         }
+      });
+      
+      if (mejorModulo) {
+        moduloResumenNombre = mejorModulo;
+        porcentajeResumen = mejorPorcentaje;
       }
     }
 
@@ -206,11 +295,15 @@ const StudentDashboard = () => {
 
     // Realistic Progress Calculation
     const totalModules = careerModules.length;
+    const totalCourseModules = courseModules.length;
     const totalSeminarios = careerSeminarios.length;
-    const totalItems = totalModules + totalSeminarios;
+    const totalItems = totalModules + totalSeminarios + totalCourseModules;
+    
     const approvedModulesCount = studentInfo?.modulosAsignados?.filter(m => m.estado === 'aprobado').length || 0;
+    const approvedCourseModulesCount = courseModules.filter(m => m.estado === 'aprobado').length || 0;
     const approvedSeminariosCount = studentInfo?.seminarios?.filter(s => s.estado === 'aprobado').length || 0;
-    const totalApproved = approvedModulesCount + approvedSeminariosCount;
+    
+    const totalApproved = approvedModulesCount + approvedSeminariosCount + approvedCourseModulesCount;
     const porcentajeProgresoReal = totalItems > 0 ? Math.round((totalApproved / totalItems) * 100) : 0;
 
     // Progress per "Stage" (1, 2, 3, Prácticas/Seminarios)
@@ -221,18 +314,39 @@ const StudentDashboard = () => {
       practica: 0
     };
 
-    if (totalItems > 0) {
-      const calcStage = (sem) => {
-        const modsSem = careerModules.filter(m => Number(m.semestre || m.semester) === sem);
-        if (modsSem.length === 0) return 0; // Si no hay módulos registrados, el progreso es 0
-        const aprobadosSem = modsSem.filter(m => studentInfo?.modulosAsignados?.some(ma => ma.id === m.id && ma.estado === 'aprobado')).length;
-        return Math.round((aprobadosSem / modsSem.length) * 100);
-      };
+    const progresoCursos = [];
 
-      progresoPorEtapa.semestre1 = calcStage(1);
-      progresoPorEtapa.semestre2 = calcStage(2);
-      progresoPorEtapa.semestre3 = calcStage(3);
-      progresoPorEtapa.practica = totalSeminarios > 0 ? Math.round((approvedSeminariosCount / totalSeminarios) * 100) : 0;
+    if (totalItems > 0) {
+      // Carrera
+      if (studentInfo?.career) {
+        const calcStage = (sem) => {
+          const modsSem = careerModules.filter(m => Number(m.semestre || m.semester) === sem);
+          if (modsSem.length === 0) return 0;
+          const aprobadosSem = modsSem.filter(m => studentInfo?.modulosAsignados?.some(ma => ma.id === m.id && ma.estado === 'aprobado')).length;
+          return Math.round((aprobadosSem / modsSem.length) * 100);
+        };
+
+        progresoPorEtapa.semestre1 = calcStage(1);
+        progresoPorEtapa.semestre2 = calcStage(2);
+        progresoPorEtapa.semestre3 = calcStage(3);
+        progresoPorEtapa.practica = totalSeminarios > 0 ? Math.round((approvedSeminariosCount / totalSeminarios) * 100) : 0;
+      }
+
+      // Cursos (Agrupados por Curso)
+      Object.entries(coursesMetadata).forEach(([cid, meta]) => {
+        const modsDelCurso = courseModules.filter(m => m.courseId === cid);
+        if (modsDelCurso.length > 0) {
+          const aprobados = modsDelCurso.filter(m => m.estado === 'aprobado').length;
+          progresoCursos.push({
+            id: cid,
+            nombre: meta.nombre,
+            duracion: meta.duracionMeses || 6,
+            totalModulos: modsDelCurso.length,
+            aprobados: aprobados,
+            porcentaje: Math.round((aprobados / modsDelCurso.length) * 100)
+          });
+        }
+      });
     }
 
     return {
@@ -244,6 +358,7 @@ const StudentDashboard = () => {
       carrera: studentInfo?.career || '-',
       porcentajeProgresoReal,
       progresoPorEtapa,
+      progresoCursos,
       semestreActual: studentInfo?.semester || '1'
     };
   };
@@ -306,6 +421,7 @@ const StudentDashboard = () => {
             studentAttendance={studentAttendance}
             findModule={findModule}
             careerSeminarios={careerSeminarios}
+            courseModules={courseModules}
             toggleSemester={toggleSemester}
             openSemesters={openSemesters}
             studentInfo={studentInfo}
@@ -321,6 +437,8 @@ const StudentDashboard = () => {
             openSemesters={openSemesters}
             handlePrintFinanceReceipt={handlePrintFinanceReceipt}
             formatCOP={formatCOP}
+            courseModules={courseModules}
+            courseDiscounts={courseDiscounts}
           />
         )}
 

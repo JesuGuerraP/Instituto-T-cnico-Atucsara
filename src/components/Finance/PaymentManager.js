@@ -636,6 +636,18 @@ const PaymentManager = () => {
   const confirmDelete = async () => {
     try {
       const target = transactions.find(t => t.id === transactionToDelete);
+      if (!target) return;
+
+      // Restablecer descuentos si se elimina un pago de matrícula
+      if (target.category === 'Matrícula' && target.studentId) {
+        await updateDoc(doc(db, 'students', target.studentId), { descuento: 0 });
+      }
+      
+      if (target.category === 'Matrícula Curso' && target.studentId && target.courseId) {
+        const courseDiscountRef = doc(db, 'courseDiscounts', `${target.studentId}_${target.courseId}`);
+        await deleteDoc(courseDiscountRef);
+      }
+
       await deleteDoc(doc(db, 'payments', transactionToDelete));
       
       saveActivity(db, currentUser, {
@@ -646,6 +658,8 @@ const PaymentManager = () => {
       });
 
       await fetchTransactions();
+      await fetchStudents(); // Refrescar descuentos carrera
+      await fetchCourseDiscounts(); // Refrescar descuentos curso
       toast.success('Transacción eliminada correctamente');
       setShowDeleteModal(false);
       setTransactionToDelete(null);
@@ -670,6 +684,18 @@ const PaymentManager = () => {
   const confirmDeletePagoModulo = async () => {
     try {
       const target = transactions.find(t => t.id === transactionToDelete);
+      if (!target) return;
+
+      // Restablecer descuentos si se elimina un pago de matrícula desde el resumen
+      if (target.category === 'Matrícula' && target.studentId) {
+        await updateDoc(doc(db, 'students', target.studentId), { descuento: 0 });
+      }
+      
+      if (target.category === 'Matrícula Curso' && target.studentId && target.courseId) {
+        const courseDiscountRef = doc(db, 'courseDiscounts', `${target.studentId}_${target.courseId}`);
+        await deleteDoc(courseDiscountRef);
+      }
+
       await deleteDoc(doc(db, 'payments', transactionToDelete));
       
       saveActivity(db, currentUser, {
@@ -680,6 +706,8 @@ const PaymentManager = () => {
       });
 
       await fetchTransactions();
+      await fetchStudents();
+      await fetchCourseDiscounts();
       toast.success('Pago de módulo eliminado correctamente');
       setShowDeleteModal(false);
       setTransactionToDelete(null);

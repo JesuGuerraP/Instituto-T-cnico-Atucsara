@@ -244,6 +244,22 @@ const AttendanceManager = () => {
           if (teacherHasModule) {
             coursesTmp.push({ id: courseDoc.id, nombre: courseData.nombre });
           }
+          // Extraer módulos específicos del curso para el profesor
+          modsSnap.forEach(md => {
+            const m = md.data();
+            const teacherFullName = (teacher.name + ' ' + (teacher.lastName || '')).trim();
+            if ((m.profesorId && m.profesorId === teacher.id) || ((m.profesorNombre || '').toLowerCase().includes(teacherFullName.toLowerCase()))) {
+                teacherModules.push({
+                    ...m,
+                    id: md.id,
+                    nombre: m.nombre,
+                    careerId: courseDoc.id,
+                    careerName: courseData.nombre,
+                    semester: 'Curso',
+                    isCourse: true
+                });
+            }
+          });
         }
         setCoursesList(coursesTmp);
         if (coursesTmp.length && !selectedCourse) setSelectedCourse(coursesTmp[0].id);
@@ -351,14 +367,17 @@ const AttendanceManager = () => {
   }, [students, year, month, selectedModule]);
 
   // Cargar registros de asistencia para la carrera seleccionada o todos
-  // Cargar todos los módulos posibles para el filtro
+  // Cargar todos los módulos posibles para el filtro (Optimizado: solo del periodo actual)
   useEffect(() => {
     const fetchAllModules = async () => {
-      const attSnap = await getDocs(collection(db, 'attendance'));
+      if (!selectedPeriod) return;
+      const attSnap = await getDocs(query(
+        collection(db, 'attendance'),
+        where('period', '==', selectedPeriod)
+      ));
       const modulesMap = new Map();
       attSnap.forEach(docu => {
         const data = docu.data();
-        // Solo módulos con al menos una fecha de asistencia
         if (data.moduleName && data.attendance && Object.keys(data.attendance).length > 0) {
           const normalized = data.moduleName.trim().toLowerCase();
           if (!modulesMap.has(normalized)) {
@@ -368,19 +387,19 @@ const AttendanceManager = () => {
       });
       setAllModuleNames(Array.from(modulesMap.values()));
     };
-    fetchAllModules();
-  }, []);
+    if (currentUser?.role === 'admin') {
+      fetchAllModules();
+    }
+  }, [selectedPeriod, currentUser]);
 
   const fetchAttendanceRecords = useCallback(async () => {
     try {
       setLoading(true);
 
-      // Se necesita la lista completa de estudiantes para buscar nombres y carreras en la tabla.
-      const studentsSnap = await getDocs(collection(db, 'students'));
-      const studentsArr = studentsSnap.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(student => student.status === 'active');
-      setStudents(studentsArr);
+      setLoading(true);
+
+      // Eliminado el fetch redundante de todos los estudiantes aquí. 
+      // Usaremos studentsArr si fuera necesario, pero la tabla usa students del estado global.
 
       // Construir la consulta a Firestore para asistencias de forma dinámica y robusta.
       const queryConstraints = [];
@@ -418,19 +437,45 @@ const AttendanceManager = () => {
       const attendanceQuery = query(collection(db, 'attendance'), ...queryConstraints);
       const attSnap = await getDocs(attendanceQuery);
       
-      const finalAttendanceRecords = attSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      let finalAttendanceRecords = attSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
         .filter(data => {
-          // Filtro adicional en el cliente para el ámbito de carrera, por si algún dato antiguo no tiene 'carrera'.
+          // Filtro adicional en el cliente para el ámbito de carrera
           if (selectedScope === 'career' && data.scope === 'course') {
             return false;
+          }
+          // Filtro para docentes: solo mostrar sus propios módulos
+          if (currentUser.role === 'teacher') {
+             // Normalizar nombres para la comparación
+             const assignedModuleNames = teacherModules.map(tm => (tm.nombre || '').trim().toLowerCase());
+             const currentModuleName = (data.moduleName || '').trim().toLowerCase();
+             return assignedModuleNames.includes(currentModuleName);
           }
           return true;
         });
       
       setAttendanceRecords(finalAttendanceRecords);
 
-      if (finalAttendanceRecords.length === 0 && (selectedSemester || (selectedCareer && selectedCareer !== 'Todos') || filterModule)) {
-        toast.info('No se encontraron registros de asistencia para los filtros seleccionados.');
+      setAttendanceRecords(finalAttendanceRecords);
+
+      // Silenciar toast si no hay nada o si estamos en transición
+      if (finalAttendanceRecords.length === 0 && !loading) {
+        const hasActiveFilters = (selectedScope === 'career' && selectedCareer && selectedCareer !== 'Todos') || 
+                                 (selectedScope === 'course' && selectedCourse) || 
+                                 filterModule;
+        
+        if (hasActiveFilters) {
+          // Usar un pequeño timeout para no solapar con re-renderizados rápidos
+          setTimeout(() => {
+            // Verificar si sigue vacío para evitar falsos positivos
+            setAttendanceRecords(current => {
+               if (current.length === 0) {
+                 // Solo mostrar si sigue siendo el mismo estado y no hay carga activa
+                 // toast.info('No se encontraron registros de asistencia para los filtros seleccionados.');
+               }
+               return current;
+            });
+          }, 500);
+        }
       }
 
     } catch (error) {
@@ -439,7 +484,7 @@ const AttendanceManager = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedCareer, selectedCourse, filterModule, selectedSemester, selectedPeriod, selectedScope]);
+  }, [selectedCareer, selectedCourse, filterModule, selectedSemester, selectedPeriod, selectedScope, teacherModules, currentUser]);
 
   useEffect(() => {
     fetchAttendanceRecords();
@@ -624,104 +669,86 @@ const AttendanceManager = () => {
     // Cuando cambia la carrera/curso seleccionado o el semestre, cargar los módulos según ámbito
     const fetchModules = async () => {
       setLoading(true);
+      let finalModules = [];
+      let attendanceModulesSize = 0;
+
       try {
         if (selectedScope === 'course') {
           if (!selectedCourse) { setCareerModules([]); return; }
           const modsSnap = await getDocs(collection(db, 'courses', selectedCourse, 'modules'));
           const allModules = modsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-          // Añadir módulos que ya tienen asistencia guardada
-          const attendanceSnap = await getDocs(collection(db, 'attendance'));
+          // Optimizado: Solo traer asistencias del curso y periodo actual
+          const attendanceSnap = await getDocs(query(
+            collection(db, 'attendance'),
+            where('scope', '==', 'course'),
+            where('courseId', '==', selectedCourse),
+            where('period', '==', selectedPeriod)
+          ));
           const attendanceModules = new Set();
           attendanceSnap.forEach(docu => {
-            const data = docu.data();
-            if (data.scope === 'course' && data.courseId === selectedCourse && data.period === selectedPeriod) {
-              attendanceModules.add(data.moduleName);
-            }
+            attendanceModules.add(docu.data().moduleName);
           });
+          attendanceModulesSize = attendanceModules.size;
           const moduleNames = new Set([...allModules.map(m => m.nombre), ...Array.from(attendanceModules)]);
-          const finalModules = Array.from(moduleNames).map(nombre => {
+          finalModules = Array.from(moduleNames).map(nombre => {
             const existing = allModules.find(m => m.nombre === nombre);
             return existing || { id: nombre, nombre };
           }).sort((a, b) => a.nombre.localeCompare(b.nombre));
-          setCareerModules(finalModules);
-          return;
-        }
-
-        if (!selectedCareer || selectedCareer === 'Todos' || !selectedPeriod || !selectedSemester) {
-          setCareerModules([]);
-          return;
-        }
-
-        let allModules = [];
-
-        // Buscar en la colección de módulos directamente
-        const modulesRef = collection(db, 'modulos');
-        const modulesSnap = await getDocs(query(
-          modulesRef,
-          where('carrera', '==', selectedCareer)
-        ));
-        
-        allModules = modulesSnap.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
-
-        // Si no hay módulos en 'modulos', buscar en la subcollección de careers
-        if (allModules.length === 0) {
-          const careersSnap = await getDocs(collection(db, 'careers'));
-          const careerDoc = careersSnap.docs.find(doc => 
-            (doc.data().nombre || '').toLowerCase() === selectedCareer.toLowerCase()
-          );
-          
-          if (careerDoc) {
-            const careerModulesSnap = await getDocs(collection(db, 'careers', careerDoc.id, 'modules'));
-            allModules = careerModulesSnap.docs.map(doc => ({
-              id: doc.id,
-              ...doc.data()
-            }));
+        } else {
+          if (!selectedCareer || selectedCareer === 'Todos' || !selectedPeriod || !selectedSemester) {
+            setCareerModules([]);
+            return;
           }
+
+          let allModules = [];
+          const modulesRef = collection(db, 'modulos');
+          const modulesSnap = await getDocs(query(modulesRef, where('carrera', '==', selectedCareer)));
+          allModules = modulesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+          if (allModules.length === 0) {
+            const careersSnap = await getDocs(collection(db, 'careers'));
+            const careerDoc = careersSnap.docs.find(doc => (doc.data().nombre || '').toLowerCase() === selectedCareer.toLowerCase());
+            if (careerDoc) {
+              const careerModulesSnap = await getDocs(collection(db, 'careers', careerDoc.id, 'modules'));
+              allModules = careerModulesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            }
+          }
+
+          // Optimizado: Solo traer asistencias de la carrera y periodo/semestre actual
+          const attendanceSnap = await getDocs(query(
+            collection(db, 'attendance'),
+            where('period', '==', selectedPeriod),
+            where('carrera', '==', selectedCareer),
+            where('scope', '==', 'career')
+          ));
+          const attendanceModules = new Set();
+          attendanceSnap.forEach(doc => {
+            const data = doc.data();
+            if (String(data.semester) === String(selectedSemester)) {
+              attendanceModules.add(data.moduleName);
+            }
+          });
+          attendanceModulesSize = attendanceModules.size;
+          const moduleNames = new Set([...allModules.map(m => m.nombre), ...Array.from(attendanceModules)]);
+          finalModules = Array.from(moduleNames).map(nombre => {
+            const existingModule = allModules.find(m => m.nombre === nombre);
+            return existingModule || { id: nombre, nombre, carrera: selectedCareer, period: selectedPeriod, semester: selectedSemester };
+          }).sort((a, b) => a.nombre.localeCompare(b.nombre));
         }
 
-        // Verificar si hay asistencias registradas para los módulos
-        const attendanceSnap = await getDocs(collection(db, 'attendance'));
-        const attendanceModules = new Set();
-        
-        attendanceSnap.forEach(doc => {
-          const data = doc.data();
-          if (
-            data.period === selectedPeriod && 
-            String(data.semester) === String(selectedSemester) &&
-            (data.carrera === selectedCareer) &&
-            (data.scope !== 'course')
-          ) {
-            attendanceModules.add(data.moduleName);
-          }
-        });
+        // Filtro final para profesores en el listado principal (común para ambos ámbitos)
+        let teacherFilteredModules = finalModules;
+        if (currentUser.role === 'teacher') {
+          const assignedNames = teacherModules.map(tm => (tm.nombre || '').trim().toLowerCase());
+          teacherFilteredModules = finalModules.filter(m => assignedNames.includes((m.nombre || '').trim().toLowerCase()));
+        }
 
-        // Combinar módulos de ambas fuentes
-        const moduleNames = new Set([
-          ...allModules.map(m => m.nombre),
-          ...Array.from(attendanceModules)
-        ]);
+        console.log('Módulos totales encontrados para el selector:', teacherFilteredModules.length);
+        setCareerModules(teacherFilteredModules);
 
-        const finalModules = Array.from(moduleNames).map(nombre => {
-          const existingModule = allModules.find(m => m.nombre === nombre);
-          return existingModule || {
-            id: nombre,
-            nombre: nombre,
-            carrera: selectedCareer,
-            period: selectedPeriod,
-            semester: selectedSemester
-          };
-        }).sort((a, b) => a.nombre.localeCompare(b.nombre));
-
-        console.log('Módulos totales encontrados:', finalModules.length);
-        setCareerModules(finalModules);
-
-        // Solo mostrar notificación si no hay módulos NI asistencias
-        if (finalModules.length === 0 && attendanceModules.size === 0) {
-          toast.info(`No hay módulos ni asistencias registradas para ${selectedCareer} en el período ${selectedPeriod}, semestre ${selectedSemester}`);
+        if (teacherFilteredModules.length === 0 && attendanceModulesSize === 0) {
+          toast.info(`No hay módulos ni asistencias registradas para la selección actual.`);
         }
       } catch (error) {
         console.error('Error al cargar módulos:', error);
@@ -732,89 +759,105 @@ const AttendanceManager = () => {
     };
 
     fetchModules();
-  }, [selectedCareer, selectedCourse, selectedPeriod, selectedSemester, selectedScope]);
+  }, [selectedCareer, selectedCourse, selectedPeriod, selectedSemester, selectedScope, teacherModules, currentUser]);
 
   useEffect(() => {
-    // Cargar módulos de la carrera seleccionada SOLO cuando el modal está abierto
-    const fetchModules = async () => {
-      if (!showModal || !selectedCareer || selectedCareer === 'Todos' || !selectedSemester) {
+    // Cargar módulos de la carrera/curso seleccionado SOLO cuando el modal está abierto
+    const fetchModulesForModal = async () => {
+      if (!showModal) {
         setModulesForCareer([]);
         return;
       }
 
-      // Buscar la carrera por nombre
-      const careersSnap = await getDocs(collection(db, 'careers'));
-      const careerDoc = careersSnap.docs.find(doc => (doc.data().nombre || '').toLowerCase() === selectedCareer.toLowerCase());
-      if (!careerDoc) {
+      const isCourseScope = selectedScope === 'course';
+
+      // Validación para carreras
+      if (!isCourseScope && (!selectedCareer || selectedCareer === 'Todos' || !selectedSemester)) {
         setModulesForCareer([]);
         return;
       }
 
-      // Traer módulos de la subcolección
-      const modulesSnap = await getDocs(collection(db, 'careers', careerDoc.id, 'modules'));
-      let allModules = modulesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-      // Filtrar por semestre
-      allModules = allModules.filter(modulo => {
-        const moduloSemestre = String(modulo.semestre || modulo.semester || '1');
-        return moduloSemestre === selectedSemester;
-      });
-
-      // Si el usuario es un profesor, filtrar por los módulos que tiene asignados
-      if (currentUser.role === 'teacher') {
-        const teachersSnap = await getDocs(query(collection(db, 'teachers'), where('email', '==', currentUser.email)));
-        if (!teachersSnap.empty) {
-          const teacher = teachersSnap.docs[0].data();
-          const teacherFullName = (teacher.name + ' ' + (teacher.lastName || '')).trim();
-          
-          allModules = allModules.filter(modulo => {
-            const profesoresAsignados = Array.isArray(modulo.profesor)
-              ? modulo.profesor
-              : (typeof modulo.profesor === 'string' ? [modulo.profesor] : []);
-            return profesoresAsignados.some(p => (p || '').trim() === teacherFullName);
-          });
-        }
+      // Validación para cursos
+      if (isCourseScope && !selectedCourse) {
+        setModulesForCareer([]);
+        return;
       }
-      
-      // Incluir módulos generales para la carrera y semestre seleccionados
+
+      let allModules = [];
+
       try {
-        if (selectedCareer && selectedSemester) {
-          const gmSnap = await getDocs(collection(db, 'generalModules'));
-          let teacherId = null;
-          if (currentUser.role === 'teacher') {
-            const tSnap = await getDocs(query(collection(db, 'teachers'), where('email', '==', currentUser.email)));
-            if (!tSnap.empty) teacherId = tSnap.docs[0].id;
+        if (isCourseScope) {
+          // --- ÁMBITO CURSO ---
+          const modsSnap = await getDocs(collection(db, 'courses', selectedCourse, 'modules'));
+          allModules = modsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        } else {
+          // --- ÁMBITO CARRERA ---
+          const careersSnap = await getDocs(collection(db, 'careers'));
+          const careerDoc = careersSnap.docs.find(doc => (doc.data().nombre || '').toLowerCase() === selectedCareer.toLowerCase());
+          
+          if (!careerDoc) {
+            setModulesForCareer([]);
+            return;
           }
-          gmSnap.forEach(gDoc => {
-            const gm = gDoc.data();
-            const applies = (gm.carreraSemestres || []).some(cs => cs.career === selectedCareer && String(cs.semester) === String(selectedSemester));
-            if (!applies) return;
-            if (currentUser.role === 'teacher') {
-              if (!(gm.profesor && teacherId && gm.profesor === teacherId)) return;
-            }
-            allModules.push({
-              id: gDoc.id,
-              nombre: (gm.nombre || '') + ' (General)',
-              semestre: String(selectedSemester),
-              carrera: selectedCareer,
-              isGeneral: true
-            });
-          });
-        }
-      } catch (e) {
-        console.warn('No se pudieron cargar módulos generales para el modal:', e);
-      }
 
-      setModulesForCareer(allModules);
-      
-      // Si hay un módulo seleccionado que no está en el semestre actual o no es del profesor, limpiarlo
-      if (moduleName && !allModules.some(m => m.nombre === moduleName)) {
-        setModuleName('');
+          const modulesSnap = await getDocs(collection(db, 'careers', careerDoc.id, 'modules'));
+          allModules = modulesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+          // Filtrar por semestre
+          allModules = allModules.filter(modulo => {
+            const moduloSemestre = String(modulo.semestre || modulo.semester || '1');
+            return moduloSemestre === selectedSemester;
+          });
+
+          // Incluir módulos generales para la carrera y semestre seleccionados
+          try {
+            const gmSnap = await getDocs(collection(db, 'generalModules'));
+            let teacherId = null;
+            if (currentUser.role === 'teacher') {
+              const tSnap = await getDocs(query(collection(db, 'teachers'), where('email', '==', currentUser.email)));
+              if (!tSnap.empty) teacherId = tSnap.docs[0].id;
+            }
+            gmSnap.forEach(gDoc => {
+              const gm = gDoc.data();
+              const applies = (gm.carreraSemestres || []).some(cs => cs.career === selectedCareer && String(cs.semester) === String(selectedSemester));
+              if (!applies) return;
+              if (currentUser.role === 'teacher') {
+                if (!(gm.profesor && teacherId && gm.profesor === teacherId)) return;
+              }
+              allModules.push({
+                id: gDoc.id,
+                nombre: (gm.nombre || '') + ' (General)',
+                semestre: String(selectedSemester),
+                carrera: selectedCareer,
+                isGeneral: true
+              });
+            });
+          } catch (e) {
+            console.warn('No se pudieron cargar módulos generales para el modal:', e);
+          }
+        }
+
+        // Filtro final para profesores (común para ambos ámbitos en el modal)
+        let finalModalModules = allModules;
+        if (currentUser.role === 'teacher') {
+          const assignedNames = teacherModules.map(tm => (tm.nombre || '').trim().toLowerCase());
+          finalModalModules = allModules.filter(m => assignedNames.includes((m.nombre || '').trim().toLowerCase()));
+        }
+
+        setModulesForCareer(finalModalModules);
+        
+        // Si hay un módulo seleccionado que no está sincronizado, limpiarlo
+        if (moduleName && !finalModalModules.some(m => m.nombre === moduleName)) {
+          setModuleName('');
+        }
+      } catch (error) {
+        console.error("Error al cargar módulos del modal:", error);
+        toast.error("Error al cargar los módulos para el registro.");
       }
     };
     
-    fetchModules();
-  }, [selectedCareer, showModal, selectedSemester, currentUser]);
+    fetchModulesForModal();
+  }, [selectedCareer, showModal, selectedSemester, currentUser, teacherModules, selectedScope, selectedCourse]);
 
   // Limpiar módulo seleccionado cuando cambia la carrera en el modal
   useEffect(() => {
@@ -832,20 +875,32 @@ const AttendanceManager = () => {
   const getFilteredStudentsForAttendance = () => {
     if (editStudentId && studentToEdit) return [studentToEdit];
 
-    let filteredStudents = students.filter(student => 
-      student.status === 'active' &&
-      (!selectedSemester || String(student.semester || student.semestre || '1') === selectedSemester)
-    );
+    let filteredStudents = students.filter(student => {
+      const isActive = student.status === 'active';
+      if (selectedScope === 'career') {
+        const studentSem = String(student.semester || student.semestre || '1');
+        return isActive && (!selectedSemester || studentSem === selectedSemester);
+      } else {
+        // En curso, la lista 'students' ya viene filtrada por curso en el useEffect anterior,
+        // pero podemos asegurar que pertenezca al curso seleccionado.
+        return isActive && Array.isArray(student.courses) && student.courses.includes(selectedCourse);
+      }
+    });
 
     if (moduleName) {
-      const selectedModuleData = modulesForCareer.find(m => m.nombre === moduleName);
-      if (selectedModuleData) {
-        filteredStudents = filteredStudents.filter(student => {
-          return student.modulosAsignados?.some(m => m.id === selectedModuleData.id);
-        });
+      if (selectedScope === 'career') {
+        const selectedModuleData = modulesForCareer.find(m => m.nombre === moduleName);
+        if (selectedModuleData) {
+          filteredStudents = filteredStudents.filter(student => {
+            return student.modulosAsignados?.some(m => m.id === selectedModuleData.id);
+          });
+        } else {
+          return [];
+        }
       } else {
-        // Si el módulo no se encuentra (p.ej. se está escribiendo), no mostrar estudiantes
-        return [];
+          // Ámbito curso: Si llegamos aquí y hay un módulo seleccionado, mostramos los estudiantes del curso.
+          // En cursos, la asignación es generalmente por curso completo a menos que se implemente por módulo.
+          return filteredStudents;
       }
     } else {
         // Si no hay módulo seleccionado, no mostrar estudiantes para evitar registros sin módulo.
@@ -924,7 +979,8 @@ const AttendanceManager = () => {
   // Cargar asistencias existentes para el módulo seleccionado cuando el modal está abierto
   useEffect(() => {
     const loadAttendanceForModule = async () => {
-      if (!showModal || !moduleName || !selectedPeriod || !selectedSemester) {
+      const isCourseScope = selectedScope === 'course';
+      if (!showModal || !moduleName || !selectedPeriod || (!isCourseScope && !selectedSemester)) {
         setAttendance({});
         return;
       }
@@ -941,7 +997,7 @@ const AttendanceManager = () => {
           collection(db, 'attendance'),
           where('moduleName', '==', moduleName),
           where('period', '==', selectedPeriod),
-          where('semester', '==', selectedSemester),
+          ...(selectedScope === 'career' ? [where('semester', '==', selectedSemester)] : [where('scope', '==', 'course')]),
           where('studentId', 'in', studentIds)
         ));
         
@@ -1136,12 +1192,18 @@ const AttendanceManager = () => {
               <select className="w-full bg-gray-50 border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm" value={filterModule} onChange={e => setFilterModule(e.target.value)}>
                 <option value="">Todos los módulos</option>
                 {currentUser.role === 'teacher'
-                  ? teacherModules
-                      .filter(m =>
-                        (!selectedCareer || m.careerName === selectedCareer) &&
-                        (!selectedSemester || String(m.semester) === selectedSemester)
-                      )
-                      .map(m => <option key={m.id} value={m.nombre}>{m.nombre}</option>)
+                  ? (selectedScope === 'course'
+                      ? teacherModules
+                          .filter(m => m.isCourse && m.careerId === selectedCourse)
+                          .map(m => <option key={m.id} value={m.nombre}>{m.nombre}</option>)
+                      : teacherModules
+                          .filter(m =>
+                            !m.isCourse &&
+                            (!selectedCareer || m.careerName === selectedCareer) &&
+                            (!selectedSemester || String(m.semester) === selectedSemester)
+                          )
+                          .map(m => <option key={m.id} value={m.nombre}>{m.nombre}</option>)
+                    )
                   : (selectedCareer && selectedCareer !== 'Todos' && careerModules.length > 0
                       ? careerModules
                           .filter(m => !selectedSemester || String(m.semestre || m.semester) === selectedSemester)

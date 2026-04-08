@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, getDocs, query, deleteDoc, doc, updateDoc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, query, deleteDoc, doc, updateDoc, getDoc, where } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -43,6 +43,7 @@ const StudentsTable = () => {
   const [showSeminariosDetalle, setShowSeminariosDetalle] = useState(false);
   const [showCursosDetalle, setShowCursosDetalle] = useState(false);
   const [courseModulesInfo, setCourseModulesInfo] = useState([]); // [{courseId, courseName, modules: []}]
+  const [loadingCourseModules, setLoadingCourseModules] = useState(false);
   const [uniquePeriods, setUniquePeriods] = useState([]); // Períodos únicos disponibles
 
   const handleUnassignModule = async (studentId, moduleId) => {
@@ -323,6 +324,64 @@ const StudentsTable = () => {
     const querySnapshot = await getDocs(q);
     setStudents(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
   };
+  
+  // Nuevo: Cargar información detallada de los módulos de curso del estudiante seleccionado
+  useEffect(() => {
+    const fetchStudentCourseModules = async () => {
+      if (!selectedStudent || !Array.isArray(selectedStudent.courses) || selectedStudent.courses.length === 0) {
+        setCourseModulesInfo([]);
+        return;
+      }
+
+      setLoadingCourseModules(true);
+      try {
+        const info = [];
+        for (const courseId of selectedStudent.courses) {
+          // Obtener datos del curso
+          const courseSnap = await getDoc(doc(db, 'courses', courseId));
+          if (!courseSnap.exists()) continue;
+          
+          const courseData = courseSnap.data();
+          const courseName = courseData.nombre || 'Curso';
+          
+          // Obtener todos los módulos del curso
+          const modulesSnap = await getDocs(collection(db, 'courses', courseId, 'modules'));
+          const assignedModules = [];
+          
+          for (const modDoc of modulesSnap.docs) {
+            // Verificar si el estudiante está en la subcolección 'students' de este módulo
+            const studentInModSnap = await getDocs(query(
+              collection(db, 'courses', courseId, 'modules', modDoc.id, 'students'),
+              where('__name__', '==', selectedStudent.id)
+            ));
+            
+            if (!studentInModSnap.empty) {
+              assignedModules.push({
+                id: modDoc.id,
+                ...modDoc.data()
+              });
+            }
+          }
+          
+          if (assignedModules.length > 0) {
+            info.push({
+              courseId,
+              courseName,
+              modules: assignedModules
+            });
+          }
+        }
+        setCourseModulesInfo(info);
+      } catch (error) {
+        console.error("Error fetching student course modules:", error);
+        toast.error("Error al cargar módulos de curso");
+      } finally {
+        setLoadingCourseModules(false);
+      }
+    };
+
+    fetchStudentCourseModules();
+  }, [selectedStudent]);
 
   // Obtener todas las carreras únicas para el filtro
   const careers = Array.from(new Set(students.map(s => s.career).filter(Boolean)));
@@ -934,10 +993,19 @@ const StudentsTable = () => {
                 </div>
                 {showCursosDetalle && (
                   <div className="space-y-3 mb-4">
-                    {courseModulesInfo.length === 0 && (
-                      <div className="text-gray-400 text-xs">No tiene cursos asignados.</div>
-                    )}
-                    {courseModulesInfo.map(ci => (
+                    {loadingCourseModules ? (
+                      <div className="py-4 text-center">
+                        <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                        <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Consultando inscripciones...</p>
+                      </div>
+                    ) : (
+                      <>
+                        {courseModulesInfo.length === 0 && (
+                          <div className="text-gray-400 text-xs py-4 text-center bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                             No tiene módulos asignados en este curso.
+                          </div>
+                        )}
+                        {courseModulesInfo.map(ci => (
                       <div key={ci.courseId} className="border border-gray-200 rounded-xl p-3 bg-gray-50">
                         <div className="font-semibold text-blue-900 mb-2">{ci.courseName}</div>
                         {ci.modules.length === 0 ? (
@@ -954,16 +1022,18 @@ const StudentsTable = () => {
                         )}
                       </div>
                     ))}
-                  </div>
+                  </>
                 )}
               </div>
             )}
-            <div className="flex justify-end mt-8">
-              <button className="px-6 py-2 bg-[#2563eb] hover:bg-[#23408e] text-white rounded-lg font-bold shadow transition" onClick={() => setSelectedStudent(null)}>Cerrar</button>
-            </div>
           </div>
+        )}
+        <div className="flex justify-end mt-8">
+          <button className="px-6 py-2 bg-[#2563eb] hover:bg-[#23408e] text-white rounded-lg font-bold shadow transition" onClick={() => setSelectedStudent(null)}>Cerrar</button>
         </div>
-      )}
+      </div>
+    </div>
+  )}
 
       {/* Modal de confirmación de eliminación */}
       {showDeleteModal && (

@@ -64,22 +64,69 @@ const DashboardHome = ({ studentInfo, currentUser, stats }) => {
           <p className="text-blue-100 text-lg max-w-2xl mb-8 font-medium">
             Bienvenido a tu portal de aprendizaje. Aquí tienes un vistazo rápido a tu progreso y las novedades de la institución.
           </p>
-          <div className="flex flex-wrap gap-4">
-            <div className="flex items-center gap-2 bg-white/10 backdrop-blur-sm px-4 py-2 rounded-xl border border-white/10">
-              <IdCard theme="outline" size="18" />
-              <span className="text-sm font-semibold">{carrera || 'Cargando carrera...'}</span>
-            </div>
-            <div className="flex items-center gap-2 bg-white/10 backdrop-blur-sm px-4 py-2 rounded-xl border border-white/10">
-              <Calendar theme="outline" size="18" />
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold">
-                  Inscrito: {studentInfo?.createdAt ? (studentInfo.createdAt.seconds ? new Date(studentInfo.createdAt.seconds * 1000).toLocaleDateString('es-CO') : new Date(studentInfo.createdAt).toLocaleDateString('es-CO')) : '--/--/----'}
-                </span>
-                <span className="w-px h-4 bg-white/30 mx-1" />
-                <span className="text-sm font-black text-[#ffd600]">Semestre: {semestreActual}</span>
+          {/* Determinar si tiene ambos ámbitos para aplicar el layout optimizado */}
+          {(() => {
+            const hasCareerInfo = carrera && carrera !== '-' && carrera !== '—';
+            const hasCourseInfo = stats.progresoCursos && stats.progresoCursos.length > 0;
+            const isHybrid = hasCareerInfo && hasCourseInfo;
+
+            return (
+              <div className={isHybrid ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 mt-8" : "flex flex-wrap gap-4 mt-8"}>
+                {/* Información de Carrera */}
+                {hasCareerInfo && (
+                  <div className={`flex items-center gap-3 bg-white/10 backdrop-blur-sm rounded-2xl border border-white/10 transition-all hover:bg-white/15 ${isHybrid ? 'px-4 py-3' : 'px-5 py-3'}`}>
+                    <div className="p-2.5 bg-blue-400/20 rounded-xl shrink-0">
+                      <IdCard theme="outline" size={isHybrid ? 20 : 22} />
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-[8px] md:text-[9px] uppercase font-black opacity-60 leading-none mb-1 tracking-[0.15em] text-blue-100 italic">Programa Profesional</span>
+                      <div className="flex items-center gap-1.5 overflow-hidden">
+                        <span className={`${isHybrid ? 'text-sm' : 'text-base'} font-bold truncate`}>{carrera}</span>
+                        <span className="w-1 h-1 rounded-full bg-white/40" />
+                        <span className={`${isHybrid ? 'text-xs' : 'text-sm'} font-black text-[#ffd600] shrink-0`}>Sem: {semestreActual}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Información de Cursos Cortos */}
+                {hasCourseInfo && (
+                  <div className={`flex items-center gap-3 bg-emerald-500/20 backdrop-blur-sm rounded-2xl border border-emerald-400/20 text-emerald-50 transition-all hover:bg-emerald-500/25 ${isHybrid ? 'px-4 py-3' : 'px-5 py-3'}`}>
+                    <div className="p-2.5 bg-emerald-400/20 rounded-xl shrink-0">
+                      <CheckOne theme="outline" size={isHybrid ? 20 : 22} />
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-[8px] md:text-[9px] uppercase font-black opacity-60 leading-none mb-1 tracking-[0.15em] text-emerald-100 italic">Formación Continua</span>
+                      <div className="flex items-center gap-1.5 overflow-hidden">
+                        <span className={`${isHybrid ? 'text-sm' : 'text-base'} font-bold truncate`}>
+                          {stats.progresoCursos.map(c => c.nombre).join(', ')}
+                        </span>
+                        {studentInfo?.coursePeriod && (
+                          <>
+                            <span className="w-1 h-1 rounded-full bg-emerald-400/40" />
+                            <span className={`${isHybrid ? 'text-xs' : 'text-sm'} font-black text-emerald-300 shrink-0`}>{studentInfo.coursePeriod}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Fecha de Ingreso Global */}
+                <div className={`flex items-center gap-3 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/5 transition-all hover:bg-white/10 ${isHybrid ? 'px-4 py-3' : 'px-5 py-3'}`}>
+                  <div className="p-2.5 bg-white/10 rounded-xl shrink-0">
+                    <Calendar theme="outline" size={isHybrid ? 20 : 22} />
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-[8px] md:text-[9px] uppercase font-black opacity-60 leading-none mb-1 tracking-[0.15em] text-blue-100 italic">Inscrito el</span>
+                    <span className={`${isHybrid ? 'text-sm' : 'text-base'} font-bold truncate`}>
+                      {studentInfo?.createdAt ? (studentInfo.createdAt.seconds ? new Date(studentInfo.createdAt.seconds * 1000).toLocaleDateString('es-CO') : new Date(studentInfo.createdAt).toLocaleDateString('es-CO')) : '--/--/----'}
+                    </span>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
+            );
+          })()}
         </div>
         {/* Decorative elements */}
         <div className="absolute top-[-20%] right-[-10%] w-[500px] h-[500px] bg-white/5 rounded-full blur-3xl" />
@@ -184,64 +231,100 @@ const DashboardHome = ({ studentInfo, currentUser, stats }) => {
 
         {/* Global Progress Card - ROADMAP Version */}
         <PremiumCard title="Hoja de Ruta Académica" icon={CheckCorrect}>
-          <div className="space-y-8">
-            <div className="relative pt-4">
-              <div className="flex justify-between items-end mb-6">
-                <div>
-                  <span className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] block mb-1">Progreso Total</span>
-                  <p className="text-4xl font-black text-[#23408e]">{porcentajeProgresoReal}%</p>
+          <div className="space-y-10">
+            {/* 1. Ruta de Carrera (Si existe) */}
+            {carrera && carrera !== '-' && (
+              <div className="relative pt-2">
+                <div className="flex justify-between items-end mb-6">
+                  <div>
+                    <span className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] block mb-1">Programa Profesional</span>
+                    <p className="text-2xl font-black text-[#23408e] truncate max-w-[250px]">{carrera}</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] block mb-1">Estatus</span>
+                    <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-[9px] font-black uppercase tracking-widest border border-blue-100">
+                      En Curso
+                    </span>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] block mb-1">Estatus Académico</span>
-                  <span className="px-3 py-1 rounded-full bg-green-100 text-green-700 text-[10px] font-black uppercase tracking-widest border border-green-200">
-                    Estudiante Activo
-                  </span>
-                </div>
-              </div>
 
-              {/* Segmented Progress bar (Roadmap) */}
-              <div className="space-y-4">
-                <div className="grid grid-cols-4 gap-2">
-                  {[
-                    { label: 'Sem 1', val: progresoPorEtapa?.semestre1 || 0 },
-                    { label: 'Sem 2', val: progresoPorEtapa?.semestre2 || 0 },
-                    { label: 'Sem 3', val: progresoPorEtapa?.semestre3 || 0 },
-                    { label: 'Prác.', val: progresoPorEtapa?.practica || 0 }
-                  ].map((stage, i) => (
-                    <div key={i} className="space-y-2">
-                      <div className="h-3 bg-gray-100 rounded-full overflow-hidden border border-gray-200 p-[2px]">
-                        <div
-                          className={`h-full rounded-full transition-all duration-1000 ${stage.val === 100 ? 'bg-green-500' : 'bg-[#23408e]'}`}
-                          style={{ width: `${stage.val}%` }}
-                        />
+                <div className="space-y-4">
+                  <div className="grid grid-cols-4 gap-2">
+                    {[
+                      { label: 'Sem 1', val: progresoPorEtapa?.semestre1 || 0 },
+                      { label: 'Sem 2', val: progresoPorEtapa?.semestre2 || 0 },
+                      { label: 'Sem 3', val: progresoPorEtapa?.semestre3 || 0 },
+                      { label: 'Prác.', val: progresoPorEtapa?.practica || 0 }
+                    ].map((stage, i) => (
+                      <div key={i} className="space-y-2">
+                        <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden border border-gray-100 p-[1px]">
+                          <div
+                            className={`h-full rounded-full transition-all duration-1000 ${stage.val === 100 ? 'bg-green-500' : 'bg-[#23408e]'}`}
+                            style={{ width: `${stage.val}%` }}
+                          />
+                        </div>
+                        <span className="block text-[8px] font-black text-center text-gray-400 uppercase tracking-tighter">{stage.label}</span>
                       </div>
-                      <span className="block text-[9px] font-black text-center text-gray-400 uppercase tracking-tighter">{stage.label}</span>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-4 rounded-2xl bg-gray-50 border border-gray-100 text-center">
-                <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Módulos Aprobados</p>
-                <p className="text-xl font-black text-gray-900">{modulosAprobados.length}</p>
+            {/* 2. Rutas de Cursos (Si existen) */}
+            {stats.progresoCursos && stats.progresoCursos.length > 0 && (
+              <div className="space-y-8 pt-4">
+                {stats.progresoCursos.map((curso, idx) => (
+                  <div key={curso.id || idx} className="relative bg-gray-50/50 rounded-2xl p-5 border border-gray-100">
+                    <div className="flex justify-between items-center mb-4">
+                      <div>
+                        <span className="text-[10px] font-black text-emerald-600 uppercase tracking-[0.2em] block mb-0.5">Curso Certificado</span>
+                        <h4 className="text-lg font-black text-gray-900">{curso.nombre}</h4>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xl font-black text-emerald-600">{curso.porcentaje}%</div>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      {/* Generar segmentos basados en el número de módulos o duración */}
+                      <div className="flex gap-1.5 h-2">
+                        {Array.from({ length: curso.totalModulos }).map((_, i) => (
+                          <div 
+                            key={i} 
+                            className={`flex-1 rounded-full border border-white/50 ${
+                              i < curso.aprobados ? 'bg-emerald-500 shadow-sm shadow-emerald-100' : 'bg-gray-200'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                      <div className="flex justify-between items-center text-[9px] font-bold text-gray-400 uppercase tracking-tight">
+                        <span>Inicio</span>
+                        <span>{curso.aprobados} de {curso.totalModulos} módulos</span>
+                        <span>Meta</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className="p-4 rounded-2xl bg-gray-50 border border-gray-100 text-center">
-                <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Seminarios</p>
-                <p className="text-xl font-black text-gray-900">{seminariosAprobados.length}</p>
+            )}
+
+            {(!carrera || carrera === '-') && (!stats.progresoCursos || stats.progresoCursos.length === 0) && (
+              <div className="py-10 text-center text-gray-300 font-bold">
+                No hay programas académicos activos para mostrar.
               </div>
-            </div>
+            )}
 
             <div className="p-5 rounded-2xl bg-[#effaf4] border border-[#d1f2e1]">
               <div className="flex items-center gap-3 mb-3">
                 <div className="p-2 rounded-lg bg-white text-[#009245] shadow-sm">
                   <Announcement theme="outline" size="20" />
                 </div>
-                <h4 className="font-bold text-[#009245]">Sabías que...</h4>
+                <h4 className="font-bold text-[#009245]">Tu Meta Global</h4>
               </div>
-              <p className="text-sm text-[#237c4d] font-medium leading-relaxed">
-                El progreso se calcula en base a los módulos de {carrera || 'tu carrera'} completados satisfactoriamente.
+              <p className="text-xs text-[#237c4d] font-medium leading-relaxed">
+                Tu progreso total de aprendizaje (Carrera + Cursos) es del <span className="font-black">{porcentajeProgresoReal}%</span>. 
+                Sigue completando módulos para obtener tus certificaciones.
               </p>
             </div>
           </div>
