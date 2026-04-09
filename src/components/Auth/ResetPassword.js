@@ -122,11 +122,16 @@ const ResetPassword = () => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-100 via-green-100 to-white p-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 border-t-8 border-green-600">
-        <div className="flex flex-col items-center mb-6">
-          <div className="bg-green-600 text-white rounded-full w-16 h-16 flex items-center justify-center mb-3">
-            <span className="text-2xl">🔐</span>
-          </div>
-          <h1 className="text-2xl font-bold text-[#23408e] text-center">Restablecer contraseña</h1>
+        <div className="flex flex-col items-center mb-8">
+          <img
+            src="/assets/logoInstituto.jpg"
+            alt="Logo Instituto Técnico Laboral Atucsara"
+            className="w-24 h-24 mb-4 object-contain"
+          />
+          <h2 className="text-2xl font-extrabold text-blue-900 text-center uppercase tracking-wide">
+            Restablecimiento de Contraseña
+          </h2>
+          <div className="w-16 h-1 bg-green-500 rounded-full mt-3"></div>
         </div>
 
         {error ? (
@@ -141,23 +146,32 @@ const ResetPassword = () => {
           </div>
         ) : (
           <>
-            <p className="text-sm text-gray-600 mb-2 text-center">
-              Restableciendo acceso para:
-            </p>
-            <p className="text-sm font-semibold text-[#23408e] mb-6 text-center break-all">{email}</p>
+            <div className="mb-8 text-center bg-blue-50/50 p-4 rounded-xl border border-blue-100">
+              <p className="text-gray-600 text-sm mb-1">
+                Restablecer contraseña para:
+              </p>
+              <p className="font-bold text-blue-900 text-base break-all">
+                {email}
+              </p>
+            </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-6">
               <div>
-                <label className="block text-sm font-semibold text-[#009245] mb-2">Nueva contraseña</label>
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-600 focus:outline-none"
-                  placeholder="Mínimo 8 caracteres"
-                  required
-                  disabled={submitting}
-                />
+                <label className="block text-sm font-bold text-blue-900 mb-2">Nueva contraseña</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                     <span className="text-gray-400">🔒</span>
+                  </div>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-600 focus:border-green-600 focus:outline-none transition-all duration-200"
+                    placeholder="Mínimo 8 caracteres"
+                    required
+                    disabled={submitting}
+                  />
+                </div>
                 {newPassword && (
                   <div className="mt-2 p-2 bg-gray-50 rounded text-xs space-y-1">
                     <div className={validatePassword(newPassword).length > 0 ? 'text-red-600' : 'text-green-600'}>
@@ -180,16 +194,21 @@ const ResetPassword = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-[#009245] mb-2">Confirmar nueva contraseña</label>
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-600 focus:outline-none"
-                  placeholder="Repite la nueva contraseña"
-                  required
-                  disabled={submitting}
-                />
+                <label className="block text-sm font-bold text-blue-900 mb-2">Confirmar nueva contraseña</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                     <span className="text-gray-400">✓</span>
+                  </div>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-600 focus:border-green-600 focus:outline-none transition-all duration-200"
+                    placeholder="Repite la nueva contraseña"
+                    required
+                    disabled={submitting}
+                  />
+                </div>
                 {confirmPassword && newPassword !== confirmPassword && (
                   <p className="text-xs text-red-600 mt-1">Las contraseñas no coinciden</p>
                 )}
@@ -201,10 +220,10 @@ const ResetPassword = () => {
               <button
                 type="submit"
                 disabled={submitting || validatePassword(newPassword).length > 0 || !confirmPassword || newPassword !== confirmPassword}
-                className="w-full py-3 px-4 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="w-full py-4 px-4 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-md hover:shadow-lg transition-all duration-200 transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
               >
-                {submitting && <span className="animate-spin">⏳</span>}
-                {submitting ? 'Procesando...' : 'Restablecer contraseña'}
+                {submitting && <div className="loader border-t-2 border-white rounded-full w-5 h-5 animate-spin"></div>}
+                {submitting ? 'Guardando...' : 'Guardar nueva contraseña'}
               </button>
             </form>
 
