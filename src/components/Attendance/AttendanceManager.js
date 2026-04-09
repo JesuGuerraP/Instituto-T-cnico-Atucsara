@@ -18,6 +18,7 @@ const AttendanceManager = () => {
   const { currentUser } = useContext(AuthContext);
   const { defaultPeriod } = useContext(DefaultPeriodContext);
   const [students, setStudents] = useState([]);
+  const [allStudentsList, setAllStudentsList] = useState([]); // Versión global sin filtros para la tabla
   const [selectedStudent, setSelectedStudent] = useState('');
   const [modules, setModules] = useState([]);
   const [selectedModule, setSelectedModule] = useState('');
@@ -131,6 +132,7 @@ const AttendanceManager = () => {
       const allStudentsSnap = await getDocs(collection(db, 'students'));
       const allStudentsArr = [];
       allStudentsSnap.forEach(doc => allStudentsArr.push({ id: doc.id, ...doc.data() }));
+      setAllStudentsList(allStudentsArr); // Guardar lista completa para visualización
       const activeStudents = allStudentsArr.filter(student => student.status === 'active');
       if (currentUser.role === 'teacher') {
         // Buscar el docente en la colección teachers
@@ -396,11 +398,6 @@ const AttendanceManager = () => {
     try {
       setLoading(true);
 
-      setLoading(true);
-
-      // Eliminado el fetch redundante de todos los estudiantes aquí. 
-      // Usaremos studentsArr si fuera necesario, pero la tabla usa students del estado global.
-
       // Construir la consulta a Firestore para asistencias de forma dinámica y robusta.
       const queryConstraints = [];
 
@@ -437,7 +434,7 @@ const AttendanceManager = () => {
       const attendanceQuery = query(collection(db, 'attendance'), ...queryConstraints);
       const attSnap = await getDocs(attendanceQuery);
       
-      let finalAttendanceRecords = attSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      const finalAttendanceRecords = attSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
         .filter(data => {
           // Filtro adicional en el cliente para el ámbito de carrera
           if (selectedScope === 'career' && data.scope === 'course') {
@@ -455,8 +452,6 @@ const AttendanceManager = () => {
       
       setAttendanceRecords(finalAttendanceRecords);
 
-      setAttendanceRecords(finalAttendanceRecords);
-
       // Silenciar toast si no hay nada o si estamos en transición
       if (finalAttendanceRecords.length === 0 && !loading) {
         const hasActiveFilters = (selectedScope === 'career' && selectedCareer && selectedCareer !== 'Todos') || 
@@ -464,13 +459,10 @@ const AttendanceManager = () => {
                                  filterModule;
         
         if (hasActiveFilters) {
-          // Usar un pequeño timeout para no solapar con re-renderizados rápidos
           setTimeout(() => {
-            // Verificar si sigue vacío para evitar falsos positivos
             setAttendanceRecords(current => {
                if (current.length === 0) {
-                 // Solo mostrar si sigue siendo el mismo estado y no hay carga activa
-                 // toast.info('No se encontraron registros de asistencia para los filtros seleccionados.');
+                 // Opcional: Toast info aquí si se desea
                }
                return current;
             });
@@ -1250,12 +1242,22 @@ const AttendanceManager = () => {
                   const filteredRecords = filterModule ? attendanceRecords.filter(r => r.moduleName === filterModule) : attendanceRecords;
                   const grouped = {};
                   filteredRecords.forEach(rec => {
-                    const student = students.find(s => s.id === rec.studentId);
-                    if (!student) return;
-                    const key = selectedScope === 'course' ? (rec.courseName || 'Curso') : (student.career || 'Sin carrera');
-                    if (!grouped[key]) grouped[key] = {};
-                    if (!grouped[key][rec.moduleName]) grouped[key][rec.moduleName] = [];
-                    grouped[key][rec.moduleName].push({ ...rec, student });
+                    // Buscar en la lista global (allStudentsList) para incluir inactivos y alumnos de otros semestres
+                    const student = allStudentsList.find(s => s.id === rec.studentId);
+                    
+                    const finalStudent = student || { 
+                      name: rec.studentName || 'Estudiante', 
+                      lastName: rec.studentLastName || '', 
+                      career: rec.carrera || 'General' 
+                    };
+                    
+                    const groupKey = selectedScope === 'course' 
+                      ? (rec.courseName || 'Curso') 
+                      : (rec.carrera || finalStudent.career || 'Sin carrera');
+
+                    if (!grouped[groupKey]) grouped[groupKey] = {};
+                    if (!grouped[groupKey][rec.moduleName]) grouped[groupKey][rec.moduleName] = [];
+                    grouped[groupKey][rec.moduleName].push({ ...rec, student: finalStudent });
                   });
                   return Object.entries(grouped).flatMap(([groupKey, modules]) =>
                     Object.entries(modules).flatMap(([modName, records]) =>
@@ -1268,11 +1270,20 @@ const AttendanceManager = () => {
                         });
                         const user = users.find(u => u.id === rec.updatedBy);
                         const updatedBy = user ? `${user.name || ''} ${user.lastName || ''}`.trim() : rec.updatedBy;
+                        
+                        // Si no se encontró el objeto student, mostrar un estilo sutil para el nombre del registro
+                        const isFromRecord = !allStudentsList.find(s => s.id === rec.studentId);
+
                         return (
                           <tr key={rec.id} className="hover:bg-gray-50 transition-colors">
                             <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-800">{groupKey}</td>
                             <td className="px-6 py-4 whitespace-nowrap text-gray-600">{modName}</td>
-                            <td className="px-6 py-4 whitespace-nowrap font-semibold text-gray-900">{rec.student.name} {rec.student.lastName}</td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex flex-col">
+                                <span className="font-semibold text-gray-900">{rec.student.name} {rec.student.lastName}</span>
+                                {isFromRecord && <span className="text-[10px] text-amber-600 font-bold uppercase tracking-tight">Registro Histórico</span>}
+                              </div>
+                            </td>
                             <td className="px-6 py-4 text-center">
                               <div className="flex items-center justify-center gap-2">
                                 <span className="inline-block px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">{asistidos} Asist.</span>
