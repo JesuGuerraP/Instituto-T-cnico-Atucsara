@@ -17,11 +17,13 @@ const TeacherForm = () => {
     specialty: '',
     email: '',
     phone: '',
-    salary: '', // Nuevo campo para salario mensual
-    career: '', // Nueva carrera asignada
+    salary: '',
+    career: '',
+    assignedCourses: [], // IDs de cursos cortos asignados
     status: 'active'
   });
   const [careers, setCareers] = useState([]);
+  const [courses, setCourses] = useState([]); // Lista de cursos cortos disponibles
   const [modulosAsignados, setModulosAsignados] = useState([]);
 
   useEffect(() => {
@@ -31,7 +33,11 @@ const TeacherForm = () => {
           const docRef = doc(db, 'teachers', id);
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
-            setTeacher(docSnap.data());
+            const data = docSnap.data();
+            setTeacher({
+              ...data,
+              assignedCourses: data.assignedCourses || []
+            });
           }
           setLoading(false);
         } catch (error) {
@@ -50,7 +56,12 @@ const TeacherForm = () => {
       const careersSnap = await getDocs(collection(db, 'careers'));
       setCareers(careersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     };
+    const fetchCourses = async () => {
+      const coursesSnap = await getDocs(collection(db, 'courses'));
+      setCourses(coursesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    };
     fetchCareers();
+    fetchCourses();
   }, []);
 
   useEffect(() => {
@@ -79,6 +90,16 @@ const TeacherForm = () => {
     setTeacher(prev => ({ ...prev, [name]: value }));
   };
 
+  const handleCourseToggle = (courseId) => {
+    setTeacher(prev => {
+      const current = prev.assignedCourses || [];
+      const updated = current.includes(courseId)
+        ? current.filter(id => id !== courseId)
+        : [...current, courseId];
+      return { ...prev, assignedCourses: updated };
+    });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -93,7 +114,7 @@ const TeacherForm = () => {
           action: 'EDICIÓN',
           entityType: 'DOCENTE',
           entityName: `${teacher.name} ${teacher.lastName || ''}`,
-          details: `Datos del docente actualizados (${teacher.specialty})`
+          details: `Datos del docente actualizados (${teacher.specialty}). Cursos: ${teacher.assignedCourses?.length || 0}`
         });
         toast.success('Profesor actualizado correctamente');
       } else {
@@ -105,7 +126,7 @@ const TeacherForm = () => {
           action: 'CREACIÓN',
           entityType: 'DOCENTE',
           entityName: `${teacher.name} ${teacher.lastName || ''}`,
-          details: `Nuevo docente registrado: ${teacher.specialty}`
+          details: `Nuevo docente registrado: ${teacher.specialty}. Cursos: ${teacher.assignedCourses?.length || 0}`
         });
         toast.success('Profesor creado correctamente');
       }
@@ -125,17 +146,31 @@ const TeacherForm = () => {
       </h2>
       <form onSubmit={handleSubmit}>
         <div className="space-y-4">
-          <div>
-            <label className="block font-semibold mb-1 text-[#23408e]">Nombre Completo</label>
-            <input
-              type="text"
-              name="name"
-              value={teacher.name}
-              onChange={handleChange}
-              className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
-              placeholder="Ej: Prof. María García"
-              required
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block font-semibold mb-1 text-[#23408e]">Nombre(s)</label>
+              <input
+                type="text"
+                name="name"
+                value={teacher.name}
+                onChange={handleChange}
+                className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
+                placeholder="Ej: María"
+                required
+              />
+            </div>
+            <div>
+              <label className="block font-semibold mb-1 text-[#23408e]">Apellido(s)</label>
+              <input
+                type="text"
+                name="lastName"
+                value={teacher.lastName}
+                onChange={handleChange}
+                className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
+                placeholder="Ej: García"
+                required
+              />
+            </div>
           </div>
           <div>
             <label className="block font-semibold mb-1 text-[#23408e]">Correo Electrónico</label>
@@ -185,20 +220,40 @@ const TeacherForm = () => {
             />
           </div>
           <div>
-            <label className="block font-semibold mb-1 text-[#23408e]">Carrera asignada</label>
+            <label className="block font-semibold mb-1 text-[#23408e]">Carrera Técnica (Opcional)</label>
             <select
               name="career"
               value={teacher.career}
               onChange={handleChange}
               className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]"
-              required
             >
-              <option value="">Selecciona una carrera</option>
+              <option value="">Ninguna carrerra técnica...</option>
               {careers.map((c) => (
                 <option key={c.id} value={c.nombre}>{c.nombre}</option>
               ))}
             </select>
           </div>
+          
+          <div>
+            <label className="block font-semibold mb-2 text-[#23408e]">Cursos Cortos (Opcional)</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 border rounded-md bg-gray-50 max-h-40 overflow-y-auto">
+              {courses.map((course) => (
+                <label key={course.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-100 p-1 rounded transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={(teacher.assignedCourses || []).includes(course.id)}
+                    onChange={() => handleCourseToggle(course.id)}
+                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                  />
+                  <span className="text-gray-700">{course.nombre}</span>
+                </label>
+              ))}
+              {courses.length === 0 && (
+                <span className="text-gray-400 text-xs italic">No hay cursos disponibles para asignar</span>
+              )}
+            </div>
+          </div>
+
           <div>
             <label className="block font-semibold mb-1 text-[#23408e]">Estado</label>
             <select

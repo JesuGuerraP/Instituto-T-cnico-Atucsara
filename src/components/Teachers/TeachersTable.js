@@ -1,16 +1,23 @@
 import { useState, useEffect } from 'react';
-import { collection, getDocs, query, deleteDoc, doc, setDoc } from 'firebase/firestore';
+import { collection, getDocs, query, deleteDoc, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
 import { saveActivity } from '../../utils/activityLogger';
+import { 
+  User, Book, Calendar, Phone, Mail, 
+  Finance, SettingConfig, Close, CheckOne, 
+  Time, Topic, DegreeHat, Carousel, ApplicationOne
+} from '@icon-park/react';
 
 const TeachersTable = () => {
   const [teachers, setTeachers] = useState([]);
+  const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTeacher, setSelectedTeacher] = useState(null);
+  const [activeTab, setActiveTab] = useState('perfil'); // 'perfil' | 'academico' | 'cursos'
   const { currentUser } = useAuth();
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [teacherToDelete, setTeacherToDelete] = useState(null);
@@ -34,29 +41,131 @@ const TeachersTable = () => {
     };
     fetchTeachers();
 
-    // Obtener módulos agrupados por profesor
+    const fetchCourses = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'courses'));
+        setCourses(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      } catch (error) {
+        console.error("Error fetching courses: ", error);
+      }
+    };
+    fetchCourses();
+
     const fetchModules = async () => {
-      const careersSnap = await getDocs(collection(db, 'careers'));
-      let modulesMap = {};
-      for (const careerDoc of careersSnap.docs) {
-        const modulesSnap = await getDocs(collection(db, 'careers', careerDoc.id, 'modules'));
-        modulesSnap.forEach(mod => {
-          const data = mod.data();
+      try {
+        let modulesMap = {};
+        
+        // 1. Módulos de Carreras
+        const careersSnap = await getDocs(collection(db, 'careers'));
+        for (const careerDoc of careersSnap.docs) {
+          const modulesSnap = await getDocs(collection(db, 'careers', careerDoc.id, 'modules'));
+          modulesSnap.forEach(mod => {
+            const data = mod.data();
+            const profs = Array.isArray(data.profesor) ? data.profesor : [data.profesor];
+            profs.forEach(p => {
+              if (p) {
+                const pNorm = (p || '').trim().toLowerCase();
+                if (!modulesMap[pNorm]) modulesMap[pNorm] = [];
+                modulesMap[pNorm].push({
+                  id: mod.id,
+                  nombre: data.nombre,
+                  carrera: careerDoc.data().nombre,
+                  careerId: careerDoc.id,
+                  semestre: data.semestre || '1',
+                  estado: data.estado || 'pendiente',
+                  type: 'career'
+                });
+              }
+            });
+          });
+        }
+
+        // 2. Módulos Generales
+        const generalSnap = await getDocs(collection(db, 'generalModules'));
+        generalSnap.forEach(gd => {
+          const data = gd.data();
           if (data.profesor) {
-            if (!modulesMap[data.profesor]) modulesMap[data.profesor] = [];
-            modulesMap[data.profesor].push({
+            const pNorm = (data.profesor || '').trim().toLowerCase();
+            if (!modulesMap[pNorm]) modulesMap[pNorm] = [];
+            modulesMap[pNorm].push({
+              id: gd.id,
               nombre: data.nombre,
-              carrera: careerDoc.data().nombre,
-              semestre: data.semestre,
-              estado: data.estado || 'pendiente' // Mantener el estado del módulo
+              carrera: 'General',
+              semestre: 'General',
+              estado: data.estado || 'pendiente',
+              type: 'general'
             });
           }
         });
+
+        // 3. Módulos de Cursos Cortos
+        const coursesSnap = await getDocs(collection(db, 'courses'));
+        for (const courseDoc of coursesSnap.docs) {
+          const modsSnap = await getDocs(collection(db, 'courses', courseDoc.id, 'modules'));
+          modsSnap.forEach(md => {
+            const data = md.data();
+            if (data.profesorNombre) {
+              const pNorm = (data.profesorNombre || '').trim().toLowerCase();
+              if (!modulesMap[pNorm]) modulesMap[pNorm] = [];
+              modulesMap[pNorm].push({
+                id: md.id,
+                courseId: courseDoc.id,
+                nombre: data.nombre,
+                carrera: courseDoc.data().nombre,
+                semestre: 'Curso',
+                estado: data.estado || 'pendiente',
+                type: 'course'
+              });
+            }
+          });
+        }
+
+        setModulesByTeacher(modulesMap);
+      } catch (error) {
+        console.error("Error fetching modules: ", error);
       }
-      setModulesByTeacher(modulesMap);
     };
     fetchModules();
   }, []);
+
+  const updateModuleStatusForTeacher = async (teacherNormName, module, newStatus) => {
+    try {
+      let docRef = null;
+      if (module.type === 'career') {
+        docRef = doc(db, 'careers', module.careerId, 'modules', module.id);
+      } else if (module.type === 'general') {
+        docRef = doc(db, 'generalModules', module.id);
+      } else if (module.type === 'course') {
+        docRef = doc(db, 'courses', module.courseId, 'modules', module.id);
+      }
+
+      if (docRef) {
+        await updateDoc(docRef, { estado: newStatus });
+        
+        saveActivity(db, currentUser, {
+          action: 'EDICIÓN',
+          entityType: 'MODULO',
+          entityName: module.nombre,
+          details: `Estado actualizado a ${newStatus} para prof. ${teacherNormName} (Tipo: ${module.type})`
+        });
+
+        setModulesByTeacher(prev => {
+          const updated = { ...prev };
+          if (updated[teacherNormName]) {
+            updated[teacherNormName] = updated[teacherNormName].map(m =>
+              (m.id === module.id && m.type === module.type) ? { ...m, estado: newStatus } : m
+            );
+          }
+          return updated;
+        });
+
+        toast.success('Estado del módulo actualizado');
+      }
+    } catch (error) {
+      console.error('Error updating module status:', error);
+      toast.error('Error al actualizar el estado');
+    }
+  };
 
   const handleDelete = async (id) => {
     setTeacherToDelete(id);
@@ -98,39 +207,6 @@ const TeachersTable = () => {
     teacher.specialty.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (teacher.email || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
-
-  const updateModuleStatusForTeacher = async (teacherName, moduleName, newStatus) => {
-    try {
-      const careersSnap = await getDocs(collection(db, 'careers'));
-      for (const careerDoc of careersSnap.docs) {
-        const modulesSnap = await getDocs(collection(db, 'careers', careerDoc.id, 'modules'));
-        for (const moduleDoc of modulesSnap.docs) {
-          const moduleData = moduleDoc.data();
-          if (moduleData.nombre === moduleName && moduleData.profesor === teacherName) {
-            await setDoc(doc(db, 'careers', careerDoc.id, 'modules', moduleDoc.id), {
-              ...moduleData,
-              estado: newStatus
-            });
-            saveActivity(db, currentUser, {
-              action: 'EDICIÓN',
-              entityType: 'MODULO',
-              entityName: moduleName,
-              details: `Estado actualizado a ${newStatus} para prof. ${teacherName}`
-            });
-          }
-        }
-      }
-      setModulesByTeacher(prev => {
-        const updatedModules = { ...prev };
-        updatedModules[teacherName] = updatedModules[teacherName].map(mod =>
-          mod.nombre === moduleName ? { ...mod, estado: newStatus } : mod
-        );
-        return updatedModules;
-      });
-    } catch (error) {
-      console.error('Error updating module status for teacher:', error);
-    }
-  };
 
   if (loading) return <div className="text-[#23408e] font-semibold">Cargando profesores...</div>;
 
@@ -190,6 +266,15 @@ const TeachersTable = () => {
                 {teacher.career && (
                   <div className="text-xs text-[#2563eb] font-semibold">Carrera: {teacher.career}</div>
                 )}
+                {teacher.assignedCourses && teacher.assignedCourses.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {teacher.assignedCourses.slice(0, 2).map(cid => {
+                      const c = courses.find(course => course.id === cid);
+                      return c ? <span key={cid} className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 font-medium">Curso: {c.nombre}</span> : null;
+                    })}
+                    {teacher.assignedCourses.length > 2 && <span className="text-[10px] bg-gray-50 text-gray-500 px-1.5 py-0.5 rounded border border-gray-100">+{teacher.assignedCourses.length - 2} más</span>}
+                  </div>
+                )}
                 {/* Los módulos asignados solo se muestran en el modal de Ver */}
               </div>
             </div>
@@ -217,86 +302,214 @@ const TeachersTable = () => {
       </div>
 
       {selectedTeacher && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-          <div className="bg-white rounded-2xl shadow-2xl p-10 max-w-2xl w-full relative border-t-8 border-[#009245] animate-fadeIn flex flex-col overflow-y-auto max-h-[80vh]">
-            <button
-              className="absolute top-4 right-6 text-gray-400 hover:text-gray-700 text-3xl font-bold transition-all"
-              onClick={() => setSelectedTeacher(null)}
-            >
-              &times;
-            </button>
-            <div className="flex items-center gap-6 mb-8">
-              <div className="w-20 h-20 rounded-full flex items-center justify-center bg-green-100 text-[#009245] font-bold text-3xl border-4 border-[#009245]">
-                {selectedTeacher.name ? selectedTeacher.name.charAt(0).toUpperCase() : '?'}
-              </div>
-              <div>
-                <h3 className="text-3xl font-bold mb-2 text-[#23408e]">Prof. {selectedTeacher.name} {selectedTeacher.lastName}</h3>
-                <div className="text-lg text-gray-600 mb-1">{selectedTeacher.email}</div>
-                <div className="text-[#009245] text-lg font-semibold mb-1">{selectedTeacher.specialty}</div>
-                {selectedTeacher.career && (
-                  <div className="text-base text-[#2563eb] font-semibold mb-1">Carrera asignada: {selectedTeacher.career}</div>
-                )}
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-              <div>
-                <div className="mb-4">
-                  <span className="font-semibold text-[#009245]">Teléfono:</span> {selectedTeacher.phone || 'No disponible'}
-                </div>
-                <div className="mb-4">
-                  <span className="font-semibold text-[#009245]">Estado:</span> {selectedTeacher.status === 'active' ? 'Activo' : 'Inactivo'}
-                </div>
-                {selectedTeacher.salary && (
-                  <div className="mb-4">
-                    <span className="font-semibold text-[#009245]">Salario mensual:</span> ${Number(selectedTeacher.salary).toLocaleString('es-CO')}
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-[2rem] shadow-2xl max-w-4xl w-full relative overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in duration-300">
+            
+            {/* Cabecera Decorativa */}
+            <div className="h-32 bg-gradient-to-r from-[#23408e] via-[#3b5cbd] to-[#23408e] relative shrink-0">
+              <button
+                className="absolute top-4 right-6 text-white/70 hover:text-white text-2xl font-bold p-2 bg-white/10 rounded-full backdrop-blur-md transition-all z-10"
+                onClick={() => setSelectedTeacher(null)}
+              >
+                <Close size="20" />
+              </button>
+              
+              {/* Avatar Flotante */}
+              <div className="absolute -bottom-10 left-10 flex items-end gap-6">
+                <div className="w-24 h-24 rounded-[2rem] bg-white p-2 shadow-xl">
+                  <div className="w-full h-full rounded-[1.8rem] bg-gradient-to-br from-[#ffd600] to-[#ffb300] flex items-center justify-center text-[#23408e] font-black text-4xl border-4 border-white">
+                    {selectedTeacher.name?.charAt(0).toUpperCase()}
                   </div>
-                )}
-                <div className="mb-4">
-                  <span className="font-semibold text-[#009245]">Contratación:</span> {selectedTeacher.createdAt ? new Date(selectedTeacher.createdAt).toLocaleDateString('es-CO') : '--/--/----'}
+                </div>
+                <div className="pb-4">
+                  <h3 className="text-2xl font-black text-white drop-shadow-md">
+                    Prof. {selectedTeacher.name} {selectedTeacher.lastName}
+                  </h3>
+                  <p className="text-white/80 text-sm font-bold uppercase tracking-widest flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-green-400"></span>
+                    {selectedTeacher.specialty}
+                  </p>
                 </div>
               </div>
-              <div>
-                <div className="font-semibold text-[#23408e] mb-4">Módulos asignados</div>
-                {modulesByTeacher[selectedTeacher.name + ' ' + (selectedTeacher.lastName || '')] ? (
-                  <ul className="list-none space-y-4">
-                    {modulesByTeacher[selectedTeacher.name + ' ' + (selectedTeacher.lastName || '')].map((m, idx) => (
-                      <li key={idx} className="flex flex-col gap-2">
-                        <div className="text-[#009245] text-base font-semibold">
-                          {m.nombre} <span className="text-gray-500 font-normal">({m.carrera}, Sem. {m.semestre})</span>
-                        </div>
-                        <select
-                          className={`px-2 py-1 rounded-full text-xs font-semibold border ${{
-                            aprobado: 'bg-green-100 text-green-800 border-green-300',
-                            cursando: 'bg-blue-100 text-blue-800 border-blue-300',
-                            pendiente: 'bg-gray-100 text-gray-800 border-gray-300',
-                          }[m.estado || 'pendiente']}`}
-                          value={m.estado || 'pendiente'}
-                          onChange={(e) =>
-                            updateModuleStatusForTeacher(
-                              selectedTeacher.name + ' ' + (selectedTeacher.lastName || ''),
-                              m.nombre,
-                              e.target.value
-                            )
-                          }
-                        >
-                          <option value="pendiente">Pendiente</option>
-                          <option value="cursando">Cursando</option>
-                          <option value="aprobado">Aprobado</option>
-                        </select>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="text-gray-400">No tiene módulos asignados.</div>
-                )}
-              </div>
             </div>
-            <div className="flex justify-end mt-4">
+
+            {/* Navegación de Pestañas */}
+            <div className="mt-14 px-10 flex border-b border-gray-100 gap-8 shrink-0">
+              {[
+                { id: 'perfil', label: 'PERFIL', icon: User },
+                { id: 'academico', label: 'CARGA ACADÉMICA', icon: DegreeHat },
+                { id: 'cursos', label: 'CURSOS CORTOS', icon: Carousel },
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`pb-4 text-xs font-black tracking-[0.2em] transition-all flex items-center gap-2 border-b-4 ${
+                    activeTab === tab.id 
+                      ? 'border-[#23408e] text-[#23408e]' 
+                      : 'border-transparent text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  <tab.icon size="16" />
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Contenido Scrollable */}
+            <div className="p-10 overflow-y-auto custom-scrollbar flex-1 bg-[#fcfdfe]">
+              
+              {/* TAB: PERFIL */}
+              {activeTab === 'perfil' && (
+                <div className="animate-in fade-in slide-in-from-bottom-2 duration-400">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-50 flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-blue-50 text-[#23408e] flex items-center justify-center"><Mail size="20" /></div>
+                      <div>
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Correo Institucional</p>
+                        <p className="font-bold text-gray-700">{selectedTeacher.email}</p>
+                      </div>
+                    </div>
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-50 flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-green-50 text-green-600 flex items-center justify-center"><Phone size="20" /></div>
+                      <div>
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Teléfono de Contacto</p>
+                        <p className="font-bold text-gray-700">{selectedTeacher.phone || 'No registrado'}</p>
+                      </div>
+                    </div>
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-50 flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center"><Calendar size="20" /></div>
+                      <div>
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Fecha de Ingreso</p>
+                        <p className="font-bold text-gray-700">
+                          {selectedTeacher.createdAt ? new Date(selectedTeacher.createdAt).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' }) : '--/--/----'}
+                        </p>
+                      </div>
+                    </div>
+                    {selectedTeacher.salary && (
+                      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-50 flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center"><Finance size="20" /></div>
+                        <div>
+                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Salario Mensual</p>
+                          <p className="font-bold text-gray-700">${Number(selectedTeacher.salary).toLocaleString('es-CO')}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {selectedTeacher.career && (
+                    <div className="mt-8 p-6 bg-gradient-to-br from-[#23408e] to-[#3b5cbd] rounded-[2rem] text-white flex items-center justify-between shadow-lg">
+                      <div>
+                        <p className="text-[10px] font-black text-white/60 uppercase tracking-widest mb-1">Carrera Asignada</p>
+                        <p className="text-xl font-black">{selectedTeacher.career}</p>
+                      </div>
+                      <DegreeHat size="48" className="text-white/20" />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB: CARGA ACADÉMICA (Módulos de Semestre) */}
+              {activeTab === 'academico' && (
+                <div className="animate-in fade-in slide-in-from-bottom-2 duration-400 space-y-8">
+                  {(() => {
+                    const normName = (selectedTeacher.name + ' ' + (selectedTeacher.lastName || '')).trim().toLowerCase();
+                    const allMods = modulesByTeacher[normName] || [];
+                    const filteredMods = allMods.filter(m => m.type !== 'course');
+                    
+                    if (filteredMods.length === 0) {
+                      return (
+                        <div className="text-center py-12 bg-gray-50 rounded-[2rem] border-2 border-dashed border-gray-200">
+                          <Book size="48" className="mx-auto text-gray-300 mb-4" />
+                          <p className="text-gray-400 font-bold">No hay módulos de carrera asignados para este docente.</p>
+                        </div>
+                      );
+                    }
+
+                    // Agrupar por semestre
+                    const grouped = filteredMods.reduce((acc, m) => {
+                      const sem = m.semestre || 'Extra';
+                      if (!acc[sem]) acc[sem] = [];
+                      acc[sem].push(m);
+                      return acc;
+                    }, {});
+
+                    return Object.keys(grouped).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map(sem => (
+                      <div key={sem} className="space-y-4">
+                        <div className="flex items-center gap-3">
+                          <span className="w-8 h-8 rounded-lg bg-[#ffd600] flex items-center justify-center text-[#23408e] font-black text-sm shadow-sm">
+                            {sem.match(/\d+/) ? sem.match(/\d+/)[0] : 'S'}
+                          </span>
+                          <h4 className="font-black text-gray-700 text-sm tracking-widest uppercase">
+                            {sem === 'General' ? 'Módulos Generales' : `Semestre ${sem}`}
+                          </h4>
+                        </div>
+                        <div className="grid grid-cols-1 gap-3">
+                          {grouped[sem].map((m, idx) => (
+                            <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between group hover:border-blue-200 transition-all">
+                              <div className="flex items-center gap-4">
+                                <div className="w-10 h-10 rounded-xl bg-gray-50 text-gray-400 flex items-center justify-center group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
+                                  <Topic size="20" />
+                                </div>
+                                <div>
+                                  <p className="font-black text-gray-800 text-sm group-hover:text-[#23408e] transition-colors">{m.nombre}</p>
+                                  <p className="text-[10px] text-gray-400 font-bold uppercase">{m.carrera}</p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              )}
+
+              {/* TAB: CURSOS CORTOS */}
+              {activeTab === 'cursos' && (
+                <div className="animate-in fade-in slide-in-from-bottom-2 duration-400 space-y-6">
+                  {(() => {
+                    const normName = (selectedTeacher.name + ' ' + (selectedTeacher.lastName || '')).trim().toLowerCase();
+                    const allMods = modulesByTeacher[normName] || [];
+                    const courseMods = allMods.filter(m => m.type === 'course');
+                    
+                    if (courseMods.length === 0) {
+                      return (
+                        <div className="text-center py-12 bg-gray-50 rounded-[2rem] border-2 border-dashed border-gray-200">
+                          <Carousel size="48" className="mx-auto text-gray-300 mb-4" />
+                          <p className="text-gray-400 font-bold">Sin módulos de cursos cortos registrados.</p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="grid grid-cols-1 gap-4">
+                        {courseMods.map((m, idx) => (
+                          <div key={idx} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center justify-between hover:border-amber-200 transition-all">
+                            <div className="flex items-center gap-5">
+                              <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                                <ApplicationOne size="28" />
+                              </div>
+                              <div>
+                                <p className="font-black text-gray-800 text-lg leading-tight">{m.nombre}</p>
+                                <p className="text-xs font-bold text-amber-500 uppercase tracking-widest">{m.carrera}</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+
+            {/* Footer de acción */}
+            <div className="p-8 bg-white border-t border-gray-50 flex justify-end shrink-0">
               <button
                 onClick={() => setSelectedTeacher(null)}
-                className="px-8 py-3 bg-[#009245] text-white rounded-xl hover:bg-[#23408e] font-bold text-lg shadow-lg transition-all"
+                className="px-10 py-3 bg-[#23408e] text-white rounded-2xl hover:bg-[#1a306d] font-black text-sm tracking-widest shadow-xl shadow-blue-200 transition-all uppercase"
               >
-                Cerrar
+                Cerrar Perfil
               </button>
             </div>
           </div>
