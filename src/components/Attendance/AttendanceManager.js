@@ -49,8 +49,8 @@ const AttendanceManager = () => {
         .map(doc => doc.data().period)
         .filter(Boolean);
       
-      // Ensure DEFAULT_PERIOD is present for migration purposes, but don't rely on it for default selection.
-      const allPeriods = Array.from(new Set([...periods, defaultPeriod]));
+      // Ensure DEFAULT_PERIOD and important milestones like 2025-1 are present.
+      const allPeriods = Array.from(new Set([...periods, defaultPeriod, '2025-1']));
 
       if (allPeriods.length > 0) {
         const sortedPeriods = allPeriods.sort((a, b) => {

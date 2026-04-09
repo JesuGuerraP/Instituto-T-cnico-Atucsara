@@ -1,10 +1,15 @@
-import { useState, useContext } from 'react';
+import { useState, useContext, useEffect } from 'react';
 import { getAuth, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
 import { AuthContext } from '../../context/AuthContext';
 import { toast } from 'react-toastify';
+import { db } from '../../firebaseConfig';
+import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
 
 const StudentSettings = () => {
-  const { currentUser } = useContext(AuthContext);
+  const { currentUser, setCurrentUser } = useContext(AuthContext);
+  const [academicPeriods, setAcademicPeriods] = useState([]);
+  const [selectedPeriod, setSelectedPeriod] = useState(currentUser?.preferredPeriod || '2025-1');
+  const [savingPref, setSavingPref] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -94,6 +99,40 @@ const StudentSettings = () => {
     }
   };
 
+  useEffect(() => {
+    const loadPeriods = async () => {
+      try {
+        const periodsSnap = await getDocs(collection(db, 'academicPeriods'));
+        const periods = periodsSnap.docs.map(doc => doc.data().period).filter(Boolean);
+        const uniquePeriods = Array.from(new Set([...periods, '2025-1']));
+        setAcademicPeriods(uniquePeriods.sort((a,b) => {
+          const [yearA, periodA] = a.split('-');
+          const [yearB, periodB] = b.split('-');
+          if (yearB !== yearA) return parseInt(yearB) - parseInt(yearA);
+          return parseInt(periodB) - parseInt(periodA);
+        }));
+      } catch (e) { console.warn('Error loading periods:', e); }
+    };
+    loadPeriods();
+  }, []);
+
+  const handleSavePreferences = async () => {
+    if (!currentUser) return;
+    setSavingPref(true);
+    try {
+      await updateDoc(doc(db, 'users', currentUser.uid), {
+        preferredPeriod: selectedPeriod
+      });
+      setCurrentUser(prev => ({ ...prev, preferredPeriod: selectedPeriod }));
+      toast.success('Preferencias guardadas correctamente');
+    } catch (error) {
+      console.error(error);
+      toast.error('Error al guardar las preferencias');
+    } finally {
+      setSavingPref(false);
+    }
+  };
+
   // Utilidad para mostrar fecha de registro si existe
   const getRegistrationDate = () => {
     if (currentUser && currentUser.metadata && currentUser.metadata.creationTime) {
@@ -108,121 +147,232 @@ const StudentSettings = () => {
   const canSubmit = !loading && passwordsMatch && pwErrors.length === 0 && currentPassword;
 
   return (
-    <div className="max-w-lg mx-auto mt-10 bg-white rounded-2xl shadow-lg p-8 border border-gray-200">
-      {/* Sección de información de usuario */}
-      <div className="flex items-center gap-4 mb-8 border-b pb-6 border-gray-100">
-        <div className="bg-[#23408e] text-white rounded-full w-16 h-16 flex items-center justify-center text-3xl font-bold">
-          <span role="img" aria-label="user">👤</span>
-        </div>
-        <div>
-          <div className="text-lg font-semibold text-gray-800">{currentUser?.displayName || (currentUser?.role === 'teacher' ? 'Profesor' : 'Estudiante')}</div>
-          <div className="text-sm text-gray-600">{currentUser?.email}</div>
-          {getRegistrationDate() && (
-            <div className="text-xs text-gray-400 mt-1">Miembro desde: {getRegistrationDate()}</div>
-          )}
-        </div>
-      </div>
-
-      {/* Sección de cambio de contraseña */}
-      <h2 className="text-xl font-bold mb-2 text-[#23408e] flex items-center gap-2">
-        <span role="img" aria-label="lock">🔒</span> Seguridad y contraseña
-      </h2>
-      <p className="text-sm text-gray-600 mb-4">
-        Cambia tu contraseña regularmente para mantener tu cuenta segura. Asegúrate de elegir una contraseña fuerte y única.
-      </p>
-      <form onSubmit={handleChangePassword} className="flex flex-col gap-4">
-        <div>
-          <label className="block text-sm font-semibold mb-1">Contraseña actual</label>
-          <input
-            type={showPassword ? 'text' : 'password'}
-            className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-[#23408e]"
-            value={currentPassword}
-            onChange={e => setCurrentPassword(e.target.value)}
-            required
-            disabled={loading}
-            autoComplete="current-password"
-            placeholder="Introduce tu contraseña actual"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-semibold mb-1">Nueva contraseña</label>
-          <input
-            type={showPassword ? 'text' : 'password'}
-            className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-[#23408e]"
-            value={newPassword}
-            onChange={e => setNewPassword(e.target.value)}
-            required
-            disabled={loading}
-            autoComplete="new-password"
-            placeholder="Mínimo 8 caracteres, incluye mayúscula, minúscula, número y símbolo"
-          />
-          {/* Indicador de requisitos */}
-          <div className="mt-2 p-2 bg-gray-50 rounded text-xs space-y-1">
-            <div className={validatePassword(newPassword).length > 0 ? 'text-red-600' : 'text-green-600'}>
-              ✓ {newPassword.length}+ caracteres ({PASSWORD_REQUIREMENTS.minLength} requeridos)
+    <div className="max-w-5xl mx-auto mt-10 px-4 pb-20">
+      {/* ── HEADER CARD ── */}
+      <div className="bg-gradient-to-r from-[#23408e] to-[#3b5cbd] rounded-[2.5rem] shadow-2xl overflow-hidden mb-8 text-white relative">
+        <div className="px-10 py-10 relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
+          <div className="flex items-center gap-6">
+            <div className="w-24 h-24 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-4xl border-2 border-white/30 shadow-lg">
+              👤
             </div>
-            <div className={PASSWORD_REQUIREMENTS.hasUpperCase.test(newPassword) ? 'text-green-600' : 'text-gray-400'}>
-              {PASSWORD_REQUIREMENTS.hasUpperCase.test(newPassword) ? '✓' : '○'} Una mayúscula
-            </div>
-            <div className={PASSWORD_REQUIREMENTS.hasLowerCase.test(newPassword) ? 'text-green-600' : 'text-gray-400'}>
-              {PASSWORD_REQUIREMENTS.hasLowerCase.test(newPassword) ? '✓' : '○'} Una minúscula
-            </div>
-            <div className={PASSWORD_REQUIREMENTS.hasNumbers.test(newPassword) ? 'text-green-600' : 'text-gray-400'}>
-              {PASSWORD_REQUIREMENTS.hasNumbers.test(newPassword) ? '✓' : '○'} Un número
-            </div>
-            <div className={PASSWORD_REQUIREMENTS.hasSpecialChar.test(newPassword) ? 'text-green-600' : 'text-gray-400'}>
-              {PASSWORD_REQUIREMENTS.hasSpecialChar.test(newPassword) ? '✓' : '○'} Un carácter especial (!@#$%^&*)
+            <div>
+              <div className="flex items-center gap-3 mb-1">
+                <span className="px-3 py-1 rounded-full bg-white/20 text-[10px] font-black uppercase tracking-widest border border-white/10">
+                  {currentUser?.role === 'teacher' ? 'Perfil Docente' : 'Perfil Estudiante'}
+                </span>
+                <span className="px-3 py-1 rounded-full bg-green-500/30 text-[10px] font-black uppercase tracking-widest border border-green-400/30 text-green-300">
+                  Activo
+                </span>
+              </div>
+              <h1 className="text-3xl font-black tracking-tight">{currentUser?.displayName || (currentUser?.role === 'teacher' ? 'Catedrático' : 'Estudiante')}</h1>
+              <p className="text-white/60 font-bold tracking-tight">{currentUser?.email}</p>
+              {getRegistrationDate() && (
+                <p className="text-white/40 text-[10px] font-black uppercase mt-2 tracking-widest">Registrado: {getRegistrationDate()}</p>
+              )}
             </div>
           </div>
+          <div className="hidden md:block text-right">
+            <div className="text-white/30 text-sm font-black uppercase tracking-[0.3em] mb-1">Instituto Atucsara</div>
+            <div className="text-[#ffd600] text-lg font-black italic tracking-tighter">Sistema de Gestión Académica</div>
+          </div>
         </div>
-        <div>
-          <label className="block text-sm font-semibold mb-1">Confirmar nueva contraseña</label>
-          <input
-            type={showPassword ? 'text' : 'password'}
-            className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-[#23408e]"
-            value={confirmPassword}
-            onChange={e => setConfirmPassword(e.target.value)}
-            required
-            disabled={loading}
-            autoComplete="new-password"
-            placeholder="Repite la nueva contraseña"
-          />
-          {confirmPassword && !passwordsMatch && (
-            <p className="text-xs text-red-600 mt-1">Las contraseñas no coinciden</p>
+        <div className="absolute top-[-40%] right-[-10%] w-96 h-96 bg-white/5 rounded-full blur-3xl" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+        
+        {/* ── LEFT COLUMN: PREFERENCES ── */}
+        <div className="space-y-8">
+          {(currentUser?.role === 'teacher' || currentUser?.role === 'admin') && (
+            <div className="bg-white rounded-[2rem] shadow-xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-left-4 duration-500">
+              <div className="p-8 space-y-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-1.5 h-6 bg-[#ffd600] rounded-full" />
+                  <h3 className="text-lg font-black text-slate-800 uppercase tracking-widest">Configuración Académica</h3>
+                </div>
+                
+                <p className="text-sm text-slate-500 font-medium leading-relaxed">
+                  Personaliza tu experiencia de trabajo. Esta preferencia determinará qué periodo aparecerá seleccionado por defecto en tus gestores de <span className="font-bold text-[#23408e]">Notas</span> y <span className="font-bold text-[#23408e]">Asistencia</span>.
+                </p>
+
+                <div className="space-y-4 pt-2">
+                  <div className="relative group">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Periodo Predeterminado</label>
+                    <select
+                      value={selectedPeriod}
+                      onChange={(e) => setSelectedPeriod(e.target.value)}
+                      className="w-full appearance-none bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 text-slate-700 font-black text-sm focus:border-[#23408e] focus:bg-white outline-none transition-all cursor-pointer group-hover:border-slate-200"
+                    >
+                      {academicPeriods.map(p => (
+                        <option key={p} value={p}>Periodo Académico {p.replace('-', ' - ')}</option>
+                      ))}
+                    </select>
+                    <div className="absolute top-[38px] right-6 flex items-center pointer-events-none text-slate-400 group-hover:text-[#23408e] transition-colors">
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleSavePreferences}
+                    disabled={savingPref}
+                    className={`w-full py-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${
+                      savingPref 
+                        ? 'bg-slate-100 text-slate-400' 
+                        : 'bg-[#23408e] text-white hover:bg-[#1a316e] shadow-lg shadow-blue-100 active:scale-95'
+                    }`}
+                  >
+                    {savingPref ? (
+                      <div className="w-4 h-4 border-2 border-slate-300 border-t-transparent rounded-full animate-spin" />
+                    ) : 'Guardar Preferencia'}
+                  </button>
+                </div>
+              </div>
+              <div className="bg-slate-50 px-8 py-4 border-t border-slate-100">
+                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest text-center">
+                  El sistema recordará esta selección en todas tus sesiones.
+                </p>
+              </div>
+            </div>
           )}
+
+          {/* Tips Card */}
+          <div className="bg-indigo-50 border border-indigo-100 rounded-[2rem] p-8 space-y-4">
+            <h4 className="font-black text-indigo-900 text-sm uppercase tracking-widest flex items-center gap-2">
+              <span>💡</span> Consejos de Seguridad
+            </h4>
+            <ul className="text-xs text-indigo-700/80 space-y-3 font-bold">
+              <li className="flex gap-3">
+                <span className="text-indigo-400">•</span> Utiliza al menos 8 caracteres para tu contraseña.
+              </li>
+              <li className="flex gap-3">
+                <span className="text-indigo-400">•</span> Combina mayúsculas, minúsculas, números y símbolos.
+              </li>
+              <li className="flex gap-3">
+                <span className="text-indigo-400">•</span> No compartas tus credenciales de acceso con terceros.
+              </li>
+              <li className="flex gap-3">
+                <span className="text-indigo-400">•</span> Cierra tu sesión al terminar de trabajar en un dispositivo público.
+              </li>
+            </ul>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            id="showPassword"
-            checked={showPassword}
-            onChange={() => setShowPassword(!showPassword)}
-            disabled={loading}
-          />
-          <label htmlFor="showPassword" className="text-xs text-gray-600 cursor-pointer">Mostrar contraseñas</label>
+
+        {/* ── RIGHT COLUMN: SECURITY ── */}
+        <div className="bg-white rounded-[2rem] shadow-xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-right-4 duration-500">
+          <div className="p-8 space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="w-1.5 h-6 bg-red-500 rounded-full" />
+              <h3 className="text-lg font-black text-slate-800 uppercase tracking-widest">Seguridad y Acceso</h3>
+            </div>
+            
+            <p className="text-sm text-slate-500 font-medium leading-relaxed">
+              Mantén tu cuenta protegida actualizando tu contraseña periódicamente.
+            </p>
+
+            <form onSubmit={handleChangePassword} className="space-y-5">
+              <div className="space-y-2">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Contraseña Actual</label>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 text-slate-700 font-black text-sm focus:border-[#23408e] focus:bg-white outline-none transition-all"
+                  value={currentPassword}
+                  onChange={e => setCurrentPassword(e.target.value)}
+                  required
+                  disabled={loading}
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nueva Contraseña</label>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 text-slate-700 font-black text-sm focus:border-[#23408e] focus:bg-white outline-none transition-all"
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  required
+                  disabled={loading}
+                  autoComplete="new-password"
+                  placeholder="Nueva clave fuerte"
+                />
+                <div className="mt-4 p-4 bg-slate-50 rounded-2xl space-y-2 border border-slate-100">
+                  <div className="grid grid-cols-2 gap-y-3 gap-x-4">
+                    <div className={`text-[9px] font-black uppercase tracking-tight flex items-center gap-1.5 transition-all ${newPassword.length >= 8 ? 'text-green-600 line-through opacity-50' : 'text-slate-400'}`}>
+                      {newPassword.length >= 8 ? '✓' : '○'} 8+ Caracteres
+                    </div>
+                    <div className={`text-[9px] font-black uppercase tracking-tight flex items-center gap-1.5 transition-all ${PASSWORD_REQUIREMENTS.hasUpperCase.test(newPassword) ? 'text-green-600 line-through opacity-50' : 'text-slate-400'}`}>
+                      {PASSWORD_REQUIREMENTS.hasUpperCase.test(newPassword) ? '✓' : '○'} Mayúscula
+                    </div>
+                    <div className={`text-[9px] font-black uppercase tracking-tight flex items-center gap-1.5 transition-all ${PASSWORD_REQUIREMENTS.hasLowerCase.test(newPassword) ? 'text-green-600 line-through opacity-50' : 'text-slate-400'}`}>
+                      {PASSWORD_REQUIREMENTS.hasLowerCase.test(newPassword) ? '✓' : '○'} Minúscula
+                    </div>
+                    <div className={`text-[9px] font-black uppercase tracking-tight flex items-center gap-1.5 transition-all ${PASSWORD_REQUIREMENTS.hasNumbers.test(newPassword) ? 'text-green-600 line-through opacity-50' : 'text-slate-400'}`}>
+                      {PASSWORD_REQUIREMENTS.hasNumbers.test(newPassword) ? '✓' : '○'} Número
+                    </div>
+                    <div className={`text-[9px] font-black uppercase tracking-tight flex items-center gap-1.5 transition-all ${PASSWORD_REQUIREMENTS.hasSpecialChar.test(newPassword) ? 'text-green-600 line-through opacity-50' : 'text-slate-400'}`}>
+                      {PASSWORD_REQUIREMENTS.hasSpecialChar.test(newPassword) ? '✓' : '○'} Símbolo
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Confirmar Nueva Contraseña</label>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 text-slate-700 font-black text-sm focus:border-[#23408e] focus:bg-white outline-none transition-all"
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  required
+                  disabled={loading}
+                  autoComplete="new-password"
+                  placeholder="Repite la clave"
+                />
+                {confirmPassword && !passwordsMatch && (
+                  <p className="text-[9px] font-black text-red-500 uppercase tracking-widest mt-2 ml-1">Las contraseñas no coinciden</p>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3 ml-1">
+                <div 
+                  onClick={() => setShowPassword(!showPassword)}
+                  className={`w-10 h-6 rounded-full transition-all cursor-pointer relative ${showPassword ? 'bg-[#23408e]' : 'bg-slate-200'}`}
+                >
+                  <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${showPassword ? 'left-5' : 'left-1'}`} />
+                </div>
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest cursor-pointer" onClick={() => setShowPassword(!showPassword)}>
+                  Mostrar contraseñas
+                </span>
+              </div>
+
+              <button
+                type="submit"
+                disabled={!canSubmit}
+                className={`w-full py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] transition-all shadow-lg flex items-center justify-center gap-3 ${
+                  !canSubmit 
+                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
+                    : 'bg-[#23408e] text-white hover:bg-[#1a316e] hover:-translate-y-1 active:scale-95 shadow-blue-100'
+                }`}
+              >
+                {loading ? (
+                  <div className="w-5 h-5 border-2 border-slate-300 border-t-transparent rounded-full animate-spin" />
+                ) : 'Actualizar Seguridad'}
+              </button>
+
+              {msg && (
+                <div className={`p-4 rounded-xl text-[10px] font-black uppercase tracking-widest text-center animate-in fade-in zoom-in-95 ${
+                  msg.includes('correctamente') ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500'
+                }`}>
+                  {msg}
+                </div>
+              )}
+            </form>
+          </div>
         </div>
-        <button
-          type="submit"
-          className="bg-[#23408e] text-white rounded px-4 py-2 font-semibold hover:bg-[#009245] transition disabled:opacity-60"
-          disabled={!canSubmit}
-        >
-          {loading ? 'Cambiando...' : 'Cambiar contraseña'}
-        </button>
-        {msg && (
-          <div className={`text-sm mt-2 ${msg.includes('correctamente') ? 'text-green-600' : 'text-red-600'}`}>{msg}</div>
-        )}
-      </form>
-      {/* Consejos de seguridad */}
-      <div className="mt-8 bg-blue-50 border-l-4 border-blue-400 p-4 rounded">
-        <div className="font-semibold text-blue-800 mb-1 flex items-center gap-1">
-          <span role="img" aria-label="info">ℹ️</span> Consejos para una contraseña segura:
-        </div>
-        <ul className="text-xs text-blue-700 list-disc ml-5">
-          <li>Utiliza al menos 8 caracteres.</li>
-          <li>Incluye letras mayúsculas, minúsculas, números y símbolos.</li>
-          <li>No uses información personal fácil de adivinar.</li>
-          <li>Cambia tu contraseña periódicamente.</li>
-        </ul>
+
       </div>
     </div>
   );

@@ -284,6 +284,7 @@ const TeacherDashboard = () => {
     setShowRecibo(true);
   };
 
+
   const handlePrint = () => {
     if (printAreaRef.current) {
       const orig = document.body.innerHTML;
@@ -938,6 +939,7 @@ const TeacherDashboard = () => {
             </div>
           </div>
         )}
+
 
         {/* ══════════════════════════════════════════
             MODALS

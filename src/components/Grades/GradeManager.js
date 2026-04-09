@@ -53,7 +53,7 @@ const GradeManager = () => {
       const periodsRef = collection(db, 'academicPeriods');
       const periodsSnap = await getDocs(periodsRef);
       const periods = periodsSnap.docs.map(doc => doc.data().period).filter(Boolean);
-      const allPeriods = Array.from(new Set([defaultPeriod, ...periods]));
+      const allPeriods = Array.from(new Set([defaultPeriod, '2025-1', ...periods]));
 
       if (allPeriods.length > 0) {
         const sortedPeriods = allPeriods.sort((a, b) => {

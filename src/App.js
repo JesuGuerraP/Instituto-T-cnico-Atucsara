@@ -75,8 +75,8 @@ function App() {
   }
 
   return (
-    <DefaultPeriodProvider>
       <AuthContext.Provider value={{ currentUser, setCurrentUser }}>
+        <DefaultPeriodProvider>
         <Router>
           <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick pauseOnFocusLoss draggable pauseOnHover />
           <Routes>
@@ -194,8 +194,8 @@ function App() {
           <Route path="*" element={<Page404 />} />
         </Routes>
       </Router>
+        </DefaultPeriodProvider>
       </AuthContext.Provider>
-    </DefaultPeriodProvider>
   );
 }
 
