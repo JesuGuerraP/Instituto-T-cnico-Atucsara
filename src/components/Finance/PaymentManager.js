@@ -1314,12 +1314,23 @@ const PaymentManager = () => {
               {isTeacherPayment && (
                 <div>
                   <label className="block text-sm font-medium mb-1">Profesor</label>
-                  <select className="w-full border rounded p-2" value={formData.teacherId || ''} onChange={e => setFormData({ ...formData, teacherId: e.target.value })} required>
-                    <option value="">Selecciona un profesor</option>
-                    {teachers.map(teacher => (
-                      <option key={teacher.id} value={teacher.id}>{teacher.name || teacher.fullName || teacher.email}</option>
-                    ))}
-                  </select>
+                  <Select
+                    className="mb-2"
+                    options={teachers.map(teacher => ({
+                      value: teacher.id,
+                      label: teacher.name || teacher.fullName || teacher.email
+                    }))}
+                    value={teachers
+                      .filter(teacher => teacher.id === formData.teacherId)
+                      .map(teacher => ({ value: teacher.id, label: teacher.name || teacher.fullName || teacher.email }))[0] || null}
+                    onChange={option => {
+                      setFormData({ ...formData, teacherId: option ? option.value : '' });
+                    }}
+                    isClearable
+                    placeholder="Buscar y seleccionar profesor..."
+                    isSearchable
+                    required
+                  />
                 </div>
               )}
               <div>

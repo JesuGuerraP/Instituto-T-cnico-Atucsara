@@ -1,7 +1,8 @@
 import { useState, useEffect, useContext } from 'react';
 import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc, addDoc } from 'firebase/firestore';
 import { getAuth, createUserWithEmailAndPassword, signOut, signInWithEmailAndPassword } from 'firebase/auth';
-import { db } from '../../firebaseConfig';
+import { initializeApp, getApps } from 'firebase/app';
+import { db, auth as mainAuth } from '../../firebaseConfig';
 import { useAuth } from '../../context/AuthContext';
 import { DefaultPeriodContext } from '../../context/DefaultPeriodContext';
 import { toast } from 'react-toastify';
@@ -246,12 +247,15 @@ const UserManagement = () => {
       }
 
       setSubmitting(true);
-      const auth = getAuth();
-      const originalUser = currentUser;
+      
+      // Creamos/obtenemos una app secundaria para no cerrar la sesión del admin
+      const secondaryApp = getApps().find(app => app.name === 'AdminApp') || 
+                          initializeApp(mainAuth.app.options, 'AdminApp');
+      const secondaryAuth = getAuth(secondaryApp);
 
       try {
-        // 1. Crear usuario en Authentication
-        const userCredential = await createUserWithEmailAndPassword(auth, form.email, form.password);
+        // 1. Crear usuario en Authentication usando la app secundaria
+        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, form.email, form.password);
         const newUserId = userCredential.user.uid;
 
         // 2. Crear documento en Firestore
@@ -271,23 +275,7 @@ const UserManagement = () => {
           details: `Nuevo usuario creado con rol: ${form.role}`
         });
 
-        // 3. Volver a loguear como el usuario original (admin) para mantener la sesión
-        if (originalUser && originalUser.email) {
-          // Obtenemos la contraseña del usuario original del localStorage (debe estar guardada en login)
-          const adminPassword = sessionStorage.getItem('adminPassword');
-          if (adminPassword) {
-            try {
-              await signOut(auth);
-              await signInWithEmailAndPassword(auth, originalUser.email, adminPassword);
-              toast.success(`Usuario ${form.email} creado correctamente. Sesión restaurada.`);
-            } catch (reAuthError) {
-              toast.warning(`Usuario creado pero no se pudo restaurar la sesión. Recargue la página.`);
-            }
-          } else {
-            await signOut(auth);
-            toast.warning(`Usuario creado correctamente, pero debe volver a iniciar sesión.`);
-          }
-        }
+        toast.success(`Usuario ${form.email} creado correctamente.`);
 
         // 4. Actualizar lista de usuarios
         setUsers([{ 
