@@ -49,18 +49,18 @@ const AttendanceManager = () => {
       const periods = periodsSnap.docs
         .map(doc => doc.data().period)
         .filter(Boolean);
-      
+
       // Ensure DEFAULT_PERIOD and important milestones like 2025-1 are present.
       const allPeriods = Array.from(new Set([...periods, defaultPeriod, '2025-1']));
 
       if (allPeriods.length > 0) {
         const sortedPeriods = allPeriods.sort((a, b) => {
-            const [yearA, periodA] = a.split('-');
-            const [yearB, periodB] = b.split('-');
-            if (parseInt(yearB) !== parseInt(yearA)) return parseInt(yearB) - parseInt(yearA);
-            return parseInt(periodB) - parseInt(periodA);
+          const [yearA, periodA] = a.split('-');
+          const [yearB, periodB] = b.split('-');
+          if (parseInt(yearB) !== parseInt(yearA)) return parseInt(yearB) - parseInt(yearA);
+          return parseInt(periodB) - parseInt(periodA);
         });
-        
+
         setAcademicPeriods(sortedPeriods);
         // Priorizar el período del contexto si está disponible en la lista
         if (defaultPeriod && sortedPeriods.includes(defaultPeriod)) {
@@ -79,13 +79,13 @@ const AttendanceManager = () => {
   };
   // Estructura: attendance[studentId][dateStr] = true/false
   const [attendance, setAttendance] = useState({});
-  
+
   // Utilidad para obtener fecha local en formato YYYY-MM-DD
   function toLocalDateString(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
   const [loading, setLoading] = useState(true);
   const [careers, setCareers] = useState([]);
@@ -119,10 +119,10 @@ const AttendanceManager = () => {
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      
+
       // Primero cargar los períodos académicos
       await loadAcademicPeriods();
-      
+
       // Obtener todos los usuarios para mostrar nombre en "registrado por"
       const usersSnap = await getDocs(collection(db, 'users'));
       const usersArr = [];
@@ -172,7 +172,7 @@ const AttendanceManager = () => {
               : (typeof modulo.profesor === 'string' ? [modulo.profesor] : []);
 
             const isProfessorMatch = profesoresAsignados.some(p => (p || '').trim() === teacherFullName);
-            
+
             // Fallback for email match for older data
             const teacherEmail = teacher.email?.toLowerCase();
             const moduloProfesorEmail = (modulo.profesorEmail || '').toLowerCase();
@@ -181,7 +181,7 @@ const AttendanceManager = () => {
             // Verificar si el módulo corresponde al semestre seleccionado
             const moduloSemestre = String(modulo.semestre || modulo.semester);
             const semestreMatch = !selectedSemester || moduloSemestre === selectedSemester;
-            
+
             if (semestreMatch && (isProfessorMatch || isEmailMatch)) {
               teacherCareers.add(carrera.nombre);
               teacherModules.push({
@@ -229,7 +229,7 @@ const AttendanceManager = () => {
         const careersArr = Array.from(teacherCareers);
         setCareers(careersArr);
         setSelectedCareer(careersArr[0] || '');
-        
+
         // Cargar cursos donde el teacher imparte (VistaCursos: modules.profesorId o profesorNombre)
         const coursesSnap = await getDocs(collection(db, 'courses'));
         const coursesTmp = [];
@@ -251,21 +251,21 @@ const AttendanceManager = () => {
             const m = md.data();
             const teacherFullName = (teacher.name + ' ' + (teacher.lastName || '')).trim();
             if ((m.profesorId && m.profesorId === teacher.id) || ((m.profesorNombre || '').toLowerCase().includes(teacherFullName.toLowerCase()))) {
-                teacherModules.push({
-                    ...m,
-                    id: md.id,
-                    nombre: m.nombre,
-                    careerId: courseDoc.id,
-                    careerName: courseData.nombre,
-                    semester: 'Curso',
-                    isCourse: true
-                });
+              teacherModules.push({
+                ...m,
+                id: md.id,
+                nombre: m.nombre,
+                careerId: courseDoc.id,
+                careerName: courseData.nombre,
+                semester: 'Curso',
+                isCourse: true
+              });
             }
           });
         }
         setCoursesList(coursesTmp);
         if (coursesTmp.length && !selectedCourse) setSelectedCourse(coursesTmp[0].id);
-        
+
         // Solo mostrar estudiantes que estén en el semestre seleccionado y tengan módulos asignados del docente
         const filteredStudents = activeStudents.filter(student => {
           const studentSemester = String(student.semester || student.semestre || '1');
@@ -273,9 +273,9 @@ const AttendanceManager = () => {
             // Verificar que el estudiante esté en el semestre seleccionado
             (!selectedSemester || studentSemester === selectedSemester) &&
             // Y que tenga módulos asignados del docente en ese semestre
-            student.modulosAsignados?.some(m => 
-              teacherModules.some(tm => 
-                tm.id === m.id && 
+            student.modulosAsignados?.some(m =>
+              teacherModules.some(tm =>
+                tm.id === m.id &&
                 String(tm.semester) === studentSemester
               )
             )
@@ -292,7 +292,7 @@ const AttendanceManager = () => {
           const studentSemester = String(student.semester || student.semestre || '1');
           return !selectedSemester || studentSemester === selectedSemester;
         });
-        
+
         const uniqueCareers = Array.from(new Set(filteredStudents.map(s => s.career).filter(Boolean)));
         setCareers(['Todos', ...uniqueCareers]);
         setSelectedCareer('Todos');
@@ -433,7 +433,7 @@ const AttendanceManager = () => {
 
       const attendanceQuery = query(collection(db, 'attendance'), ...queryConstraints);
       const attSnap = await getDocs(attendanceQuery);
-      
+
       const finalAttendanceRecords = attSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
         .filter(data => {
           // Filtro adicional en el cliente para el ámbito de carrera
@@ -442,29 +442,29 @@ const AttendanceManager = () => {
           }
           // Filtro para docentes: solo mostrar sus propios módulos
           if (currentUser.role === 'teacher') {
-             // Normalizar nombres para la comparación
-             const assignedModuleNames = teacherModules.map(tm => (tm.nombre || '').trim().toLowerCase());
-             const currentModuleName = (data.moduleName || '').trim().toLowerCase();
-             return assignedModuleNames.includes(currentModuleName);
+            // Normalizar nombres para la comparación
+            const assignedModuleNames = teacherModules.map(tm => (tm.nombre || '').trim().toLowerCase());
+            const currentModuleName = (data.moduleName || '').trim().toLowerCase();
+            return assignedModuleNames.includes(currentModuleName);
           }
           return true;
         });
-      
+
       setAttendanceRecords(finalAttendanceRecords);
 
       // Silenciar toast si no hay nada o si estamos en transición
       if (finalAttendanceRecords.length === 0 && !loading) {
-        const hasActiveFilters = (selectedScope === 'career' && selectedCareer && selectedCareer !== 'Todos') || 
-                                 (selectedScope === 'course' && selectedCourse) || 
-                                 filterModule;
-        
+        const hasActiveFilters = (selectedScope === 'career' && selectedCareer && selectedCareer !== 'Todos') ||
+          (selectedScope === 'course' && selectedCourse) ||
+          filterModule;
+
         if (hasActiveFilters) {
           setTimeout(() => {
             setAttendanceRecords(current => {
-               if (current.length === 0) {
-                 // Opcional: Toast info aquí si se desea
-               }
-               return current;
+              if (current.length === 0) {
+                // Opcional: Toast info aquí si se desea
+              }
+              return current;
             });
           }, 500);
         }
@@ -507,7 +507,7 @@ const AttendanceManager = () => {
       return;
     }
     try {
-      const studentsWithAttendance = studentsToSave.filter(student => 
+      const studentsWithAttendance = studentsToSave.filter(student =>
         attendance[student.id] && Object.keys(attendance[student.id]).length > 0
       );
 
@@ -515,43 +515,49 @@ const AttendanceManager = () => {
         toast.info('No se encontraron cambios en la asistencia para guardar.');
         return;
       }
-      
+
       for (const student of studentsWithAttendance) {
         let docRef;
+
+        // Usar el período de inscripción del estudiante si está disponible.
+        // Esto evita que asistencias de estudiantes de 2025-1 se guarden bajo 2025-2
+        // solo porque el registro se hizo durante el calendario de 2025-2.
+        const studentPeriod = student.period || periodForModal;
+
         const dataToSave = {
-            studentId: student.id,
-            moduleName,
-            period: periodForModal,
-            scope: selectedScope,
-            studentName: `${student.name} ${student.lastName || ''}`.trim(),
-            updatedBy: currentUser.uid,
-            updatedAt: new Date().toISOString(),
-            attendance: {},
+          studentId: student.id,
+          moduleName,
+          period: studentPeriod,
+          scope: selectedScope,
+          studentName: `${student.name} ${student.lastName || ''}`.trim(),
+          updatedBy: currentUser.uid,
+          updatedAt: new Date().toISOString(),
+          attendance: {},
         };
 
         if (selectedScope === 'career') {
-            docRef = doc(db, 'attendance', `${student.id}_${moduleName}_${periodForModal}_${semesterForModal}`);
-            dataToSave.semester = semesterForModal;
-            dataToSave.carrera = student.career;
+          docRef = doc(db, 'attendance', `${student.id}_${moduleName}_${studentPeriod}_${semesterForModal}`);
+          dataToSave.semester = semesterForModal;
+          dataToSave.carrera = student.career;
         } else { // scope === 'course'
-            docRef = doc(db, 'attendance', `${student.id}_${moduleName}_${periodForModal}`);
-            dataToSave.courseId = selectedCourse;
-            dataToSave.courseName = coursesList.find(c => c.id === selectedCourse)?.nombre || '';
+          docRef = doc(db, 'attendance', `${student.id}_${moduleName}_${studentPeriod}`);
+          dataToSave.courseId = selectedCourse;
+          dataToSave.courseName = coursesList.find(c => c.id === selectedCourse)?.nombre || '';
         }
 
         let prevAttendance = {};
         try {
-            const prevDocSnap = await getDocs(query(collection(db, 'attendance'), where('studentId', '==', student.id), where('moduleName', '==', moduleName), where('period', '==', periodForModal)));
-            prevDocSnap.forEach(d => {
-                const expectedId = selectedScope === 'career' 
-                    ? `${student.id}_${moduleName}_${periodForModal}_${semesterForModal}`
-                    : `${student.id}_${moduleName}_${periodForModal}`;
-                if (d.id === expectedId) {
-                    prevAttendance = d.data().attendance || {};
-                }
-            });
-        } catch (e) {}
-        
+          const prevDocSnap = await getDocs(query(collection(db, 'attendance'), where('studentId', '==', student.id), where('moduleName', '==', moduleName), where('period', '==', studentPeriod)));
+          prevDocSnap.forEach(d => {
+            const expectedId = selectedScope === 'career'
+              ? `${student.id}_${moduleName}_${studentPeriod}_${semesterForModal}`
+              : `${student.id}_${moduleName}_${studentPeriod}`;
+            if (d.id === expectedId) {
+              prevAttendance = d.data().attendance || {};
+            }
+          });
+        } catch (e) { }
+
         let hasChanges = false;
         const mergedAttendance = { ...prevAttendance };
         for (const [dateStr, value] of Object.entries(attendance[student.id])) {
@@ -566,7 +572,7 @@ const AttendanceManager = () => {
             delete mergedAttendance[dateStr];
           }
         }
-        
+
         if (hasChanges) {
           if (Object.keys(mergedAttendance).length === 0) {
             await deleteDoc(docRef);
@@ -596,7 +602,7 @@ const AttendanceManager = () => {
     try {
       const target = deleteRecord;
       await deleteDoc(doc(db, 'attendance', deleteRecord.id));
-      
+
       saveActivity(db, currentUser, {
         action: 'ELIMINACIÓN',
         entityType: 'ASISTENCIA',
@@ -643,11 +649,11 @@ const AttendanceManager = () => {
           details: `Fecha individual eliminada: ${dateToDelete} para ${detailRecord.studentName}`
         });
         toast.success(`Asistencia del ${dateToDelete} eliminada.`);
-        
+
         const updatedDetailRecord = { ...detailRecord, attendance: newAttendance };
         setDetailRecord(updatedDetailRecord);
 
-        setAttendanceRecords(prev => prev.map(r => 
+        setAttendanceRecords(prev => prev.map(r =>
           r.id === id ? { ...r, attendance: newAttendance } : r
         ));
       }
@@ -786,7 +792,7 @@ const AttendanceManager = () => {
           // --- ÁMBITO CARRERA ---
           const careersSnap = await getDocs(collection(db, 'careers'));
           const careerDoc = careersSnap.docs.find(doc => (doc.data().nombre || '').toLowerCase() === selectedCareer.toLowerCase());
-          
+
           if (!careerDoc) {
             setModulesForCareer([]);
             return;
@@ -837,7 +843,7 @@ const AttendanceManager = () => {
         }
 
         setModulesForCareer(finalModalModules);
-        
+
         // Si hay un módulo seleccionado que no está sincronizado, limpiarlo
         if (moduleName && !finalModalModules.some(m => m.nombre === moduleName)) {
           setModuleName('');
@@ -847,7 +853,7 @@ const AttendanceManager = () => {
         toast.error("Error al cargar los módulos para el registro.");
       }
     };
-    
+
     fetchModulesForModal();
   }, [selectedCareer, showModal, selectedSemester, currentUser, teacherModules, selectedScope, selectedCourse]);
 
@@ -867,39 +873,41 @@ const AttendanceManager = () => {
   const getFilteredStudentsForAttendance = () => {
     if (editStudentId && studentToEdit) return [studentToEdit];
 
+    if (moduleName && selectedScope === 'career') {
+      // Cuando hay un módulo seleccionado en ámbito carrera:
+      // buscar en TODOS los estudiantes activos de la carrera (sin restringir por semestre)
+      // para incluir estudiantes que repiten un módulo de un semestre anterior.
+      const selectedModuleData = modulesForCareer.find(m => m.nombre === moduleName);
+      if (!selectedModuleData) return [];
+
+      const careerBase = allStudentsList.filter(s =>
+        s.status === 'active' &&
+        (selectedCareer === 'Todos' || !selectedCareer || s.career === selectedCareer)
+      );
+
+      return careerBase.filter(student =>
+        student.modulosAsignados?.some(m => m.id === selectedModuleData.id)
+      );
+    }
+
+    // Sin módulo seleccionado: filtrar por semestre del estudiante normalmente
     let filteredStudents = students.filter(student => {
       const isActive = student.status === 'active';
       if (selectedScope === 'career') {
         const studentSem = String(student.semester || student.semestre || '1');
         return isActive && (!selectedSemester || studentSem === selectedSemester);
       } else {
-        // En curso, la lista 'students' ya viene filtrada por curso en el useEffect anterior,
-        // pero podemos asegurar que pertenezca al curso seleccionado.
         return isActive && Array.isArray(student.courses) && student.courses.includes(selectedCourse);
       }
     });
 
-    if (moduleName) {
-      if (selectedScope === 'career') {
-        const selectedModuleData = modulesForCareer.find(m => m.nombre === moduleName);
-        if (selectedModuleData) {
-          filteredStudents = filteredStudents.filter(student => {
-            return student.modulosAsignados?.some(m => m.id === selectedModuleData.id);
-          });
-        } else {
-          return [];
-        }
-      } else {
-          // Ámbito curso: Si llegamos aquí y hay un módulo seleccionado, mostramos los estudiantes del curso.
-          // En cursos, la asignación es generalmente por curso completo a menos que se implemente por módulo.
-          return filteredStudents;
-      }
-    } else {
-        // Si no hay módulo seleccionado, no mostrar estudiantes para evitar registros sin módulo.
-        return [];
+    if (moduleName && selectedScope === 'course') {
+      // Ámbito curso con módulo seleccionado: mostrar estudiantes del curso.
+      return filteredStudents;
     }
 
-    return filteredStudents;
+    // Sin módulo seleccionado: no mostrar estudiantes para evitar registros sin módulo.
+    return [];
   };
 
   // --- NUEVO: Mantener módulo seleccionado y cargar asistencias previas correctamente ---
@@ -992,7 +1000,7 @@ const AttendanceManager = () => {
           ...(selectedScope === 'career' ? [where('semester', '==', selectedSemester)] : [where('scope', '==', 'course')]),
           where('studentId', 'in', studentIds)
         ));
-        
+
         const attData = {};
         attSnap.forEach(docu => {
           const data = docu.data();
@@ -1073,7 +1081,7 @@ const AttendanceManager = () => {
                       const lastPeriod = currentPeriods.sort((a, b) => b.localeCompare(a))[0];
                       let suggestedYear = year;
                       let suggestedPeriod = "1";
-                      
+
                       if (lastPeriod) {
                         const [lastYear, lastNum] = lastPeriod.split('-');
                         if (lastNum === "1") {
@@ -1117,7 +1125,7 @@ const AttendanceManager = () => {
                     className="p-2 text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
                     title="Agregar nuevo período"
                   >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
                   </button>
                 )}
               </div>
@@ -1185,23 +1193,23 @@ const AttendanceManager = () => {
                 <option value="">Todos los módulos</option>
                 {currentUser.role === 'teacher'
                   ? (selectedScope === 'course'
-                      ? teacherModules
-                          .filter(m => m.isCourse && m.careerId === selectedCourse)
-                          .map(m => <option key={m.id} value={m.nombre}>{m.nombre}</option>)
-                      : teacherModules
-                          .filter(m =>
-                            !m.isCourse &&
-                            (!selectedCareer || m.careerName === selectedCareer) &&
-                            (!selectedSemester || String(m.semester) === selectedSemester)
-                          )
-                          .map(m => <option key={m.id} value={m.nombre}>{m.nombre}</option>)
-                    )
+                    ? teacherModules
+                      .filter(m => m.isCourse && m.careerId === selectedCourse)
+                      .map(m => <option key={m.id} value={m.nombre}>{m.nombre}</option>)
+                    : teacherModules
+                      .filter(m =>
+                        !m.isCourse &&
+                        (!selectedCareer || m.careerName === selectedCareer) &&
+                        (!selectedSemester || String(m.semester) === selectedSemester)
+                      )
+                      .map(m => <option key={m.id} value={m.nombre}>{m.nombre}</option>)
+                  )
                   : (selectedCareer && selectedCareer !== 'Todos' && careerModules.length > 0
-                      ? careerModules
-                          .filter(m => !selectedSemester || String(m.semestre || m.semester) === selectedSemester)
-                          .map(m => <option key={m.nombre} value={m.nombre}>{m.nombre}</option>)
-                      : allModuleNames.map(m => <option key={m} value={m}>{m}</option>)
-                    )
+                    ? careerModules
+                      .filter(m => !selectedSemester || String(m.semestre || m.semester) === selectedSemester)
+                      .map(m => <option key={m.nombre} value={m.nombre}>{m.nombre}</option>)
+                    : allModuleNames.map(m => <option key={m} value={m}>{m}</option>)
+                  )
                 }
               </select>
             </div>
@@ -1244,15 +1252,15 @@ const AttendanceManager = () => {
                   filteredRecords.forEach(rec => {
                     // Buscar en la lista global (allStudentsList) para incluir inactivos y alumnos de otros semestres
                     const student = allStudentsList.find(s => s.id === rec.studentId);
-                    
-                    const finalStudent = student || { 
-                      name: rec.studentName || 'Estudiante', 
-                      lastName: rec.studentLastName || '', 
-                      career: rec.carrera || 'General' 
+
+                    const finalStudent = student || {
+                      name: rec.studentName || 'Estudiante',
+                      lastName: rec.studentLastName || '',
+                      career: rec.carrera || 'General'
                     };
-                    
-                    const groupKey = selectedScope === 'course' 
-                      ? (rec.courseName || 'Curso') 
+
+                    const groupKey = selectedScope === 'course'
+                      ? (rec.courseName || 'Curso')
                       : (rec.carrera || finalStudent.career || 'Sin carrera');
 
                     if (!grouped[groupKey]) grouped[groupKey] = {};
@@ -1270,7 +1278,7 @@ const AttendanceManager = () => {
                         });
                         const user = users.find(u => u.id === rec.updatedBy);
                         const updatedBy = user ? `${user.name || ''} ${user.lastName || ''}`.trim() : rec.updatedBy;
-                        
+
                         // Si no se encontró el objeto student, mostrar un estilo sutil para el nombre del registro
                         const isFromRecord = !allStudentsList.find(s => s.id === rec.studentId);
 
@@ -1347,7 +1355,7 @@ const AttendanceManager = () => {
           <h2 className="text-2xl font-bold text-gray-800">Registrar Asistencia</h2>
           <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600 text-3xl">&times;</button>
         </header>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{selectedScope === 'course' ? 'Curso' : 'Carrera'}</label>

@@ -53,7 +53,7 @@ const StudentsTable = () => {
       const studentData = studentSnap.data();
       const updatedModulos = studentData.modulosAsignados.filter(m => m.id !== moduleId);
       await updateDoc(studentRef, { modulosAsignados: updatedModulos });
-      
+
       const moduleName = studentData.modulosAsignados.find(m => m.id === moduleId)?.nombre || moduleId;
       saveActivity(db, currentUser, {
         action: 'ASIGNACIÓN',
@@ -199,18 +199,18 @@ const StudentsTable = () => {
     if (assignSemester && (modulesByCareer.length > 0 || generalModules.length > 0)) {
       // Módulos específicos de la carrera en ese semestre
       const specificModules = modulesByCareer.filter(m => String(m.semestre) === String(assignSemester));
-      
+
       // Módulos generales disponibles para esa carrera en ese semestre
-      const relevant = generalModules.filter(gm => 
+      const relevant = generalModules.filter(gm =>
         gm.carreraSemestres.some(cs => cs.career === assignCareer && String(cs.semester) === String(assignSemester))
       );
-      
+
       // Combinar ambos, marcando los generales
       const combined = [
         ...specificModules.map(m => ({ ...m, isGeneral: false })),
         ...relevant.map(m => ({ ...m, isGeneral: true }))
       ];
-      
+
       setModulesByCareerSemester(combined);
     } else {
       setModulesByCareerSemester([]);
@@ -224,7 +224,7 @@ const StudentsTable = () => {
   useEffect(() => {
     if (assignCareer && assignSemester && assignModule) {
       let filtered = [];
-      
+
       if (isGeneralModule) {
         // Si es módulo general: mostrar estudiantes de TODAS las carreras que tienen ese módulo en ese semestre
         const module = generalModules.find(m => m.id === assignModule);
@@ -232,24 +232,47 @@ const StudentsTable = () => {
           const relevantCareers = module.carreraSemestres
             .filter(cs => String(cs.semester) === String(assignSemester))
             .map(cs => cs.career);
-          
-          filtered = students.filter(s => 
+
+          // Grupo 1: estudiantes del semestre correcto sin el módulo
+          const normalStudents = students.filter(s =>
             s.status === 'active' &&
-            relevantCareers.includes(s.career) && 
+            relevantCareers.includes(s.career) &&
             String(s.semester) === String(assignSemester) &&
             !(Array.isArray(s.modulosAsignados) && s.modulosAsignados.some(m => m.id === assignModule))
           );
+
+          // Grupo 2: estudiantes de otro semestre con el módulo en estado 'reprobado' (repitiendo)
+          const repeatingStudents = students.filter(s =>
+            s.status === 'active' &&
+            relevantCareers.includes(s.career) &&
+            String(s.semester) !== String(assignSemester) &&
+            Array.isArray(s.modulosAsignados) &&
+            s.modulosAsignados.some(m => m.id === assignModule && m.estado === 'reprobado')
+          ).map(s => ({ ...s, _isRepeating: true }));
+
+          filtered = [...normalStudents, ...repeatingStudents];
         }
       } else {
-        // Si es módulo específico: solo estudiantes de esa carrera
-        filtered = students.filter(s => 
+        // Grupo 1: estudiantes del semestre correcto de esa carrera sin el módulo
+        const normalStudents = students.filter(s =>
           s.status === 'active' &&
-          s.career === assignCareer && 
+          s.career === assignCareer &&
           String(s.semester) === String(assignSemester) &&
           !(Array.isArray(s.modulosAsignados) && s.modulosAsignados.some(m => m.id === assignModule))
         );
+
+        // Grupo 2: estudiantes de OTRA carrera o mismo semestre diferente con el módulo 'reprobado' (repitiendo)
+        const repeatingStudents = students.filter(s =>
+          s.status === 'active' &&
+          s.career === assignCareer &&
+          String(s.semester) !== String(assignSemester) &&
+          Array.isArray(s.modulosAsignados) &&
+          s.modulosAsignados.some(m => m.id === assignModule && m.estado === 'reprobado')
+        ).map(s => ({ ...s, _isRepeating: true }));
+
+        filtered = [...normalStudents, ...repeatingStudents];
       }
-      
+
       setStudentsByCareer(filtered);
     } else {
       setStudentsByCareer([]);
@@ -265,7 +288,7 @@ const StudentsTable = () => {
     try {
       const targetStudent = students.find(s => s.id === studentToDelete);
       await deleteDoc(doc(db, 'students', studentToDelete));
-      
+
       saveActivity(db, currentUser, {
         action: 'ELIMINACIÓN',
         entityType: 'ESTUDIANTE',
@@ -304,7 +327,7 @@ const StudentsTable = () => {
         modulosAsignados.push({ id: assignModule, estado: assignStatus });
       }
       await updateDoc(studentRef, { modulosAsignados });
-      
+
       saveActivity(db, currentUser, {
         action: 'ASIGNACIÓN',
         entityType: 'ESTUDIANTE',
@@ -325,7 +348,7 @@ const StudentsTable = () => {
     const querySnapshot = await getDocs(q);
     setStudents(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
   };
-  
+
   // Nuevo: Cargar información detallada de los módulos de curso del estudiante seleccionado
   useEffect(() => {
     const fetchStudentCourseModules = async () => {
@@ -341,21 +364,21 @@ const StudentsTable = () => {
           // Obtener datos del curso
           const courseSnap = await getDoc(doc(db, 'courses', courseId));
           if (!courseSnap.exists()) continue;
-          
+
           const courseData = courseSnap.data();
           const courseName = courseData.nombre || 'Curso';
-          
+
           // Obtener todos los módulos del curso
           const modulesSnap = await getDocs(collection(db, 'courses', courseId, 'modules'));
           const assignedModules = [];
-          
+
           for (const modDoc of modulesSnap.docs) {
             // Verificar si el estudiante está en la subcolección 'students' de este módulo
             const studentInModSnap = await getDocs(query(
               collection(db, 'courses', courseId, 'modules', modDoc.id, 'students'),
               where('__name__', '==', selectedStudent.id)
             ));
-            
+
             if (!studentInModSnap.empty) {
               assignedModules.push({
                 id: modDoc.id,
@@ -363,7 +386,7 @@ const StudentsTable = () => {
               });
             }
           }
-          
+
           if (assignedModules.length > 0) {
             info.push({
               courseId,
@@ -403,9 +426,9 @@ const StudentsTable = () => {
     const matchesCareerOrCourse = scopeFilter === 'course'
       ? (courseFilter ? (Array.isArray(student.courses) && student.courses.includes(courseFilter)) : true)
       : (careerFilter ? student.career === careerFilter : true);
-    
+
     const matchesStatus = statusFilter === 'all' ? true : student.status === statusFilter;
-    
+
     const matchesPeriod = periodFilter ? student.period === periodFilter : true;
 
     return matchesText && matchesCareerOrCourse && matchesScope && matchesStatus && matchesPeriod;
@@ -478,20 +501,20 @@ const StudentsTable = () => {
         <div className="bg-white rounded-lg shadow p-3 flex flex-col md:flex-row gap-3 items-center">
           {/* Estado */}
           <div className="flex gap-2 w-full md:w-auto">
-            <button 
-              onClick={() => setStatusFilter('all')} 
+            <button
+              onClick={() => setStatusFilter('all')}
               className={`px-3 py-2 rounded-md text-xs font-semibold transition ${statusFilter === 'all' ? 'bg-[#23408e] text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
             >
               Todos
             </button>
-            <button 
-              onClick={() => setStatusFilter('active')} 
+            <button
+              onClick={() => setStatusFilter('active')}
               className={`px-3 py-2 rounded-md text-xs font-semibold transition ${statusFilter === 'active' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
             >
               Activos
             </button>
-            <button 
-              onClick={() => setStatusFilter('inactive')} 
+            <button
+              onClick={() => setStatusFilter('inactive')}
               className={`px-3 py-2 rounded-md text-xs font-semibold transition ${statusFilter === 'inactive' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
             >
               Inactivos
@@ -738,10 +761,13 @@ const StudentsTable = () => {
                   {studentsByCareer.filter(s => !assignStudents.includes(s.id)).map(s => (
                     <li
                       key={s.id}
-                      className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm"
+                      className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm flex items-center justify-between gap-2"
                       onClick={() => setAssignStudents(prev => [...prev, s.id])}
                     >
-                      {s.name} {s.lastName}
+                      <span>{s.name} {s.lastName}</span>
+                      {s._isRepeating && (
+                        <span className="text-xs font-semibold text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full whitespace-nowrap">Repitiendo · Sem. {s.semester}</span>
+                      )}
                     </li>
                   ))}
                   {studentsByCareer.filter(s => !assignStudents.includes(s.id)).length === 0 && (
@@ -755,9 +781,15 @@ const StudentsTable = () => {
                     <ul className="mt-1 space-y-1">
                       {assignStudents.map(id => {
                         const s = studentsByCareer.find(st => st.id === id) || students.find(st => st.id === id);
+                        const isRepeating = studentsByCareer.find(st => st.id === id)?._isRepeating;
                         return (
                           <li key={id} className="flex items-center justify-between px-3 py-1 bg-gray-100 rounded text-sm">
-                            <span>{s ? `${s.name} ${s.lastName}` : id}</span>
+                            <span className="flex items-center gap-2">
+                              {s ? `${s.name} ${s.lastName}` : id}
+                              {isRepeating && (
+                                <span className="text-xs font-semibold text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full">Repitiendo</span>
+                              )}
+                            </span>
                             <button
                               className="text-red-500 hover:text-red-700 text-xs"
                               onClick={() => setAssignStudents(prev => prev.filter(x => x !== id))}
@@ -910,8 +942,8 @@ const StudentsTable = () => {
 
                             return (
                               <div className="text-xs text-gray-600 mt-1">
-                                <span className="font-semibold">Profesor:</span> {teacherDisplay}<br/>
-                                <span className="font-semibold">Semestre:</span> {semesterDisplay}<br/>
+                                <span className="font-semibold">Profesor:</span> {teacherDisplay}<br />
+                                <span className="font-semibold">Semestre:</span> {semesterDisplay}<br />
                                 <span className="font-semibold">Descripción:</span> {moduloObj.descripcion}
                               </div>
                             );
@@ -970,8 +1002,8 @@ const StudentsTable = () => {
                             <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${estadoColor} ml-2`}>{estado.charAt(0).toUpperCase() + estado.slice(1)}</span>
                           </div>
                           <div className="text-xs text-gray-600 mt-1">
-                            <span className="font-semibold">Profesor:</span> {info.profesor || 'Sin asignar'}<br/>
-                            <span className="font-semibold">Horas:</span> {info.horas || '-'}<br/>
+                            <span className="font-semibold">Profesor:</span> {info.profesor || 'Sin asignar'}<br />
+                            <span className="font-semibold">Horas:</span> {info.horas || '-'}<br />
                             <span className="font-semibold">Estado:</span> {estado.charAt(0).toUpperCase() + estado.slice(1)}
                           </div>
                         </li>
@@ -1003,38 +1035,38 @@ const StudentsTable = () => {
                       <>
                         {courseModulesInfo.length === 0 && (
                           <div className="text-gray-400 text-xs py-4 text-center bg-gray-50 rounded-xl border border-dashed border-gray-200">
-                             No tiene módulos asignados en este curso.
+                            No tiene módulos asignados en este curso.
                           </div>
                         )}
                         {courseModulesInfo.map(ci => (
-                      <div key={ci.courseId} className="border border-gray-200 rounded-xl p-3 bg-gray-50">
-                        <div className="font-semibold text-blue-900 mb-2">{ci.courseName}</div>
-                        {ci.modules.length === 0 ? (
-                          <div className="text-gray-400 text-xs">Este curso no tiene módulos.</div>
-                        ) : (
-                          <ul className="space-y-1">
-                            {ci.modules.map(m => (
-                              <li key={m.id} className="flex items-center justify-between text-sm">
-                                <span className="text-gray-700">{m.nombre}</span>
-                                <span className="text-gray-500 text-xs">{m.horas ? `${m.horas} h` : ''} {m.precio ? `• ${Number(m.precio).toLocaleString()}` : ''}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    ))}
-                  </>
+                          <div key={ci.courseId} className="border border-gray-200 rounded-xl p-3 bg-gray-50">
+                            <div className="font-semibold text-blue-900 mb-2">{ci.courseName}</div>
+                            {ci.modules.length === 0 ? (
+                              <div className="text-gray-400 text-xs">Este curso no tiene módulos.</div>
+                            ) : (
+                              <ul className="space-y-1">
+                                {ci.modules.map(m => (
+                                  <li key={m.id} className="flex items-center justify-between text-sm">
+                                    <span className="text-gray-700">{m.nombre}</span>
+                                    <span className="text-gray-500 text-xs">{m.horas ? `${m.horas} h` : ''} {m.precio ? `• ${Number(m.precio).toLocaleString()}` : ''}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
             )}
+            <div className="flex justify-end mt-8">
+              <button className="px-6 py-2 bg-[#2563eb] hover:bg-[#23408e] text-white rounded-lg font-bold shadow transition" onClick={() => setSelectedStudent(null)}>Cerrar</button>
+            </div>
           </div>
-        )}
-        <div className="flex justify-end mt-8">
-          <button className="px-6 py-2 bg-[#2563eb] hover:bg-[#23408e] text-white rounded-lg font-bold shadow transition" onClick={() => setSelectedStudent(null)}>Cerrar</button>
         </div>
-      </div>
-    </div>
-  )}
+      )}
 
       {/* Modal de confirmación de eliminación */}
       {showDeleteModal && (

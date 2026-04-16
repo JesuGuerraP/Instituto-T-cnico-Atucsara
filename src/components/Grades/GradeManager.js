@@ -28,7 +28,7 @@ const GradeManager = () => {
   const [teachers, setTeachers] = useState([]);
   const [academicPeriods, setAcademicPeriods] = useState([defaultPeriod]);
   const [teacherModules, setTeacherModules] = useState([]);
-  
+
   // Estados de UI y filtros
   const [selectedScope, setSelectedScope] = useState('career');
   const [selectedPeriod, setSelectedPeriod] = useState('');
@@ -85,14 +85,14 @@ const GradeManager = () => {
   useEffect(() => {
     const fetchData = async () => {
       if (!currentUser) return;
-      
+
       await loadAcademicPeriods();
-      
+
       const studentsSnap = await getDocs(collection(db, 'students'));
       const allStudents = studentsSnap.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))
         .filter(student => student.status === 'active');
-      
+
       const teachersSnap = await getDocs(collection(db, 'teachers'));
       const allTeachers = teachersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
@@ -154,43 +154,43 @@ const GradeManager = () => {
           setStudents([]); setTeachers([]); setGrades([]); setTeacherModules([]);
           return;
         }
-        
+
         const teacherFullName = (teacher.name + ' ' + (teacher.lastName || '')).trim();
-        
+
         const assignedModules = allModules.filter(m => {
-            if (m.source === 'career') {
-                const moduleProfesor = m.profesor;
-                let isMatch = false;
-                if (Array.isArray(moduleProfesor)) {
-                    isMatch = moduleProfesor.map(p => (p || '').trim()).includes(teacherFullName);
-                } else if (typeof moduleProfesor === 'string') {
-                    // Permitir coincidencia por nombre completo o por ID (módulos generales guardan ID)
-                    isMatch = (moduleProfesor || '').trim() === teacherFullName || moduleProfesor === teacher.id;
-                }
-                
-                if (!isMatch && m.profesorEmail && teacher.email) {
-                    isMatch = m.profesorEmail.toLowerCase() === teacher.email.toLowerCase();
-                }
-                return isMatch;
+          if (m.source === 'career') {
+            const moduleProfesor = m.profesor;
+            let isMatch = false;
+            if (Array.isArray(moduleProfesor)) {
+              isMatch = moduleProfesor.map(p => (p || '').trim()).includes(teacherFullName);
+            } else if (typeof moduleProfesor === 'string') {
+              // Permitir coincidencia por nombre completo o por ID (módulos generales guardan ID)
+              isMatch = (moduleProfesor || '').trim() === teacherFullName || moduleProfesor === teacher.id;
             }
-            if (m.source === 'course') {
-                const teacherFullNameLower = teacherFullName.toLowerCase();
-                const moduleProfesorCourse = (m.profesorNombre || '').toLowerCase().trim();
-                return m.profesorId === teacher.id || moduleProfesorCourse.includes(teacherFullNameLower);
+
+            if (!isMatch && m.profesorEmail && teacher.email) {
+              isMatch = m.profesorEmail.toLowerCase() === teacher.email.toLowerCase();
             }
-            return false;
+            return isMatch;
+          }
+          if (m.source === 'course') {
+            const teacherFullNameLower = teacherFullName.toLowerCase();
+            const moduleProfesorCourse = (m.profesorNombre || '').toLowerCase().trim();
+            return m.profesorId === teacher.id || moduleProfesorCourse.includes(teacherFullNameLower);
+          }
+          return false;
         });
 
         const assignedModuleIds = new Set(assignedModules.map(m => m.id));
         const assignedCourseIds = new Set(assignedModules.filter(m => m.source === 'course').map(m => m.courseId));
 
-        const filteredStudents = allStudents.filter(s => 
-            s.modulosAsignados?.some(m => assignedModuleIds.has(m.id)) ||
-            s.courses?.some(cId => assignedCourseIds.has(cId))
+        const filteredStudents = allStudents.filter(s =>
+          s.modulosAsignados?.some(m => assignedModuleIds.has(m.id)) ||
+          s.courses?.some(cId => assignedCourseIds.has(cId))
         );
-        
-        const filteredGrades = allGrades.filter(g => 
-            assignedModuleIds.has(g.moduleId) && filteredStudents.some(s => s.id === g.studentId)
+
+        const filteredGrades = allGrades.filter(g =>
+          assignedModuleIds.has(g.moduleId) && filteredStudents.some(s => s.id === g.studentId)
         );
 
         setTeacherModules(assignedModules);
@@ -247,15 +247,15 @@ const GradeManager = () => {
 
   // Opciones para los selectores de CURSOS
   const courseOptions = useMemo(() => {
-      const courses = teacherModules
-          .filter(m => m.source === 'course')
-          .map(m => ({ id: m.courseId, name: m.courseName }));
-      return [...new Map(courses.map(item => [item['id'], item])).values()];
+    const courses = teacherModules
+      .filter(m => m.source === 'course')
+      .map(m => ({ id: m.courseId, name: m.courseName }));
+    return [...new Map(courses.map(item => [item['id'], item])).values()];
   }, [teacherModules]);
 
   const courseModuleOptions = useMemo(() => {
-      if (!selectedCourse) return [];
-      return teacherModules.filter(m => m.source === 'course' && m.courseId === selectedCourse);
+    if (!selectedCourse) return [];
+    return teacherModules.filter(m => m.source === 'course' && m.courseId === selectedCourse);
   }, [teacherModules, selectedCourse]);
 
   // Calificaciones filtradas
@@ -268,13 +268,20 @@ const GradeManager = () => {
 
       if (selectedScope === 'career') {
         if (moduleInfo?.source !== 'career') return false;
-        if (selectedSemester && String(g.semester) !== String(selectedSemester)) return false;
+        // Usar el semestre del módulo (no el del estudiante) para el filtro
+        // Esto soporta estudiantes de otro semestre que repiten el módulo
+        if (selectedSemester) {
+          const effectiveSemester = moduleInfo
+            ? String(moduleInfo.semestre || moduleInfo.semester || g.semester)
+            : String(g.semester);
+          if (effectiveSemester !== String(selectedSemester)) return false;
+        }
         if (careerFilters.module && g.moduleName !== careerFilters.module) return false;
         if (careerFilters.student && g.studentId !== careerFilters.student) return false;
         // Usar groupId para el filtro para ser consistente con el formulario
         if (careerFilters.group && g.groupId !== careerFilters.group) return false;
       }
-      
+
       if (selectedScope === 'course') {
         if (moduleInfo?.source !== 'course') return false;
         if (selectedCourse && moduleInfo.courseId !== selectedCourse) return false;
@@ -287,8 +294,8 @@ const GradeManager = () => {
       if (search) {
         const s = search.toLowerCase();
         return (g.studentName?.toLowerCase().includes(s) ||
-                g.moduleName?.toLowerCase().includes(s) ||
-                g.activityName?.toLowerCase().includes(s));
+          g.moduleName?.toLowerCase().includes(s) ||
+          g.activityName?.toLowerCase().includes(s));
       }
       return true;
     });
@@ -297,28 +304,37 @@ const GradeManager = () => {
   const studentOptions = useMemo(() => {
     let filtered = [];
     if (selectedScope === 'career') {
-        // Filtra estudiantes por semestre si está seleccionado
-        filtered = students.filter(s => !selectedSemester || String(s.semester) === String(selectedSemester));
-        // Si hay un módulo seleccionado, filtrar además por pertenencia al módulo
-        if (careerFilters.module) {
-          const moduloSel = teacherModules.find(m => m.source === 'career' && m.nombre === careerFilters.module && (!selectedSemester || String(m.semestre || m.semester) === String(selectedSemester)));
-          if (moduloSel) {
-            filtered = filtered.filter(s => Array.isArray(s.modulosAsignados) && s.modulosAsignados.some(ms => ms.id === moduloSel.id));
-          } else {
-            // Si el módulo seleccionado no existe para el semestre, no mostrar estudiantes
-            filtered = [];
-          }
-        }
-    } else if (selectedScope === 'course') {
-        // Filtra estudiantes que pertenecen al curso seleccionado
-        if (selectedCourse) {
-            filtered = students.filter(s => Array.isArray(s.courses) && s.courses.includes(selectedCourse));
+      if (careerFilters.module) {
+        // Cuando hay un módulo seleccionado: mostrar TODOS los estudiantes que lo tienen asignado,
+        // independientemente de su semestre actual (soporta estudiantes que repiten)
+        const moduloSel = teacherModules.find(m =>
+          m.source === 'career' &&
+          m.nombre === careerFilters.module &&
+          (!selectedSemester || String(m.semestre || m.semester) === String(selectedSemester))
+        );
+        if (moduloSel) {
+          filtered = students.filter(s =>
+            s.status === 'active' &&
+            Array.isArray(s.modulosAsignados) &&
+            s.modulosAsignados.some(ms => ms.id === moduloSel.id)
+          );
         } else {
-            // Opcional: mostrar todos los estudiantes de cursos si no hay un curso seleccionado
-            filtered = students.filter(s => Array.isArray(s.courses) && s.courses.length > 0);
+          filtered = [];
         }
+      } else {
+        // Sin módulo seleccionado: filtrar por semestre del estudiante normalmente
+        filtered = students.filter(s => !selectedSemester || String(s.semester) === String(selectedSemester));
+      }
+    } else if (selectedScope === 'course') {
+      // Filtra estudiantes que pertenecen al curso seleccionado
+      if (selectedCourse) {
+        filtered = students.filter(s => Array.isArray(s.courses) && s.courses.includes(selectedCourse));
+      } else {
+        // Opcional: mostrar todos los estudiantes de cursos si no hay un curso seleccionado
+        filtered = students.filter(s => Array.isArray(s.courses) && s.courses.length > 0);
+      }
     } else {
-        filtered = students;
+      filtered = students;
     }
     return filtered.sort((a, b) => `${a.name} ${a.lastName}`.localeCompare(`${b.name} ${b.lastName}`));
   }, [students, selectedScope, selectedSemester, selectedCourse, careerFilters.module, teacherModules]);
@@ -333,7 +349,7 @@ const GradeManager = () => {
     try {
       const target = grades.find(g => g.id === gradeToDelete);
       await deleteDoc(doc(db, 'grades', gradeToDelete));
-      
+
       saveActivity(db, currentUser, {
         action: 'ELIMINACIÓN',
         entityType: 'ACADEMICO',
@@ -343,7 +359,7 @@ const GradeManager = () => {
 
       const updatedGrades = grades.filter(g => g.id !== gradeToDelete);
       setGrades(updatedGrades);
-      
+
       // Sincronizar estado si existía el target
       if (target) {
         await syncStudentModuleStatus(db, target.studentId, target.moduleId || target.moduleName, updatedGrades);
@@ -384,165 +400,165 @@ const GradeManager = () => {
             </select>
           </div>
         </div>
-        
+
         {/* Selector de Ámbito */}
         <div className="flex items-center gap-4">
-            <span className="text-sm font-medium text-gray-600">Ámbito:</span>
-            <div className="flex flex-wrap gap-2">
-                {hasCareerModules && (
-                    <button type="button"
-                        className={`px-3 py-1.5 rounded-md text-sm ${selectedScope === 'career' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}
-                        onClick={() => setSelectedScope('career')}>
-                        Carreras
-                    </button>
-                )}
-                {hasCourseModules && (
-                    <button type="button"
-                        className={`px-3 py-1.5 rounded-md text-sm ${selectedScope === 'course' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700'}`}
-                        onClick={() => setSelectedScope('course')}>
-                        Cursos
-                    </button>
-                )}
-            </div>
+          <span className="text-sm font-medium text-gray-600">Ámbito:</span>
+          <div className="flex flex-wrap gap-2">
+            {hasCareerModules && (
+              <button type="button"
+                className={`px-3 py-1.5 rounded-md text-sm ${selectedScope === 'career' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+                onClick={() => setSelectedScope('career')}>
+                Carreras
+              </button>
+            )}
+            {hasCourseModules && (
+              <button type="button"
+                className={`px-3 py-1.5 rounded-md text-sm ${selectedScope === 'course' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+                onClick={() => setSelectedScope('course')}>
+                Cursos
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Filtros Condicionales */}
       <div className="bg-white rounded-lg mb-6">
         {selectedScope === 'career' && (
-            <div className="flex flex-col gap-4">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                    <div className="flex flex-wrap gap-2">
-                        {["1", "2", "3"].map(num => (
-                            <button key={num}
-                                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${selectedSemester === num ? "bg-[#23408e] text-white" : "text-gray-600 hover:bg-gray-50 bg-white border border-gray-100"}`}
-                                onClick={() => setSelectedSemester(num)}>
-                                Semestre {num}
-                            </button>
-                        ))}
-                        <button
-                            className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${!selectedSemester ? "bg-gray-100 text-gray-700 font-bold" : "text-gray-600 hover:bg-gray-50 bg-white border border-gray-100"}`}
-                            onClick={() => setSelectedSemester("")}>
-                            Todos
-                        </button>
-                    </div>
-                    <span className="text-sm text-gray-500 text-right">
-                        {selectedSemester ? `Semestre ${selectedSemester} - ${selectedPeriod}` : `Período ${selectedPeriod}`}
-                    </span>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
-                    <div>
-                        <label className="text-sm font-medium text-gray-700">Módulo</label>
-                        <select
-                            className="w-full mt-1 p-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-[#23408e]"
-                            value={careerFilters.module}
-                            onChange={e => setCareerFilters(f => ({ ...f, module: e.target.value }))}>
-                            <option value="">Todos los Módulos</option>
-                            {teacherModules
-                                .filter(m => m.source === 'career' && (!selectedSemester || String(m.semestre || m.semester) === String(selectedSemester)))
-                                .map(m => <option key={m.id} value={m.nombre}>{m.nombre}</option>)}
-                        </select>
-                    </div>
-                     <div>
-                        <label className="text-sm font-medium text-gray-700">Estudiante</label>
-                        <select
-                            className="w-full mt-1 p-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-[#23408e]"
-                            value={careerFilters.student}
-                            onChange={e => setCareerFilters(f => ({ ...f, student: e.target.value }))}>
-                            <option value="">Todos los Estudiantes</option>
-                            {studentOptions.map(s => <option key={s.id} value={s.id}>{s.name} {s.lastName}</option>)}
-                        </select>
-                    </div>
-                     <div>
-                        <label className="text-sm font-medium text-gray-700">Grupo</label>
-                        <select
-                            className="w-full mt-1 p-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-[#23408e]"
-                            value={careerFilters.group}
-                            onChange={e => setCareerFilters(f => ({ ...f, group: e.target.value }))}>
-                            <option value="">Todos los Grupos</option>
-                            {GROUP_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
-                        </select>
-                    </div>
-                </div>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="flex flex-wrap gap-2">
+                {["1", "2", "3"].map(num => (
+                  <button key={num}
+                    className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${selectedSemester === num ? "bg-[#23408e] text-white" : "text-gray-600 hover:bg-gray-50 bg-white border border-gray-100"}`}
+                    onClick={() => setSelectedSemester(num)}>
+                    Semestre {num}
+                  </button>
+                ))}
+                <button
+                  className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${!selectedSemester ? "bg-gray-100 text-gray-700 font-bold" : "text-gray-600 hover:bg-gray-50 bg-white border border-gray-100"}`}
+                  onClick={() => setSelectedSemester("")}>
+                  Todos
+                </button>
+              </div>
+              <span className="text-sm text-gray-500 text-right">
+                {selectedSemester ? `Semestre ${selectedSemester} - ${selectedPeriod}` : `Período ${selectedPeriod}`}
+              </span>
             </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+              <div>
+                <label className="text-sm font-medium text-gray-700">Módulo</label>
+                <select
+                  className="w-full mt-1 p-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-[#23408e]"
+                  value={careerFilters.module}
+                  onChange={e => setCareerFilters(f => ({ ...f, module: e.target.value }))}>
+                  <option value="">Todos los Módulos</option>
+                  {teacherModules
+                    .filter(m => m.source === 'career' && (!selectedSemester || String(m.semestre || m.semester) === String(selectedSemester)))
+                    .map(m => <option key={m.id} value={m.nombre}>{m.nombre}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700">Estudiante</label>
+                <select
+                  className="w-full mt-1 p-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-[#23408e]"
+                  value={careerFilters.student}
+                  onChange={e => setCareerFilters(f => ({ ...f, student: e.target.value }))}>
+                  <option value="">Todos los Estudiantes</option>
+                  {studentOptions.map(s => <option key={s.id} value={s.id}>{s.name} {s.lastName}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700">Grupo</label>
+                <select
+                  className="w-full mt-1 p-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-[#23408e]"
+                  value={careerFilters.group}
+                  onChange={e => setCareerFilters(f => ({ ...f, group: e.target.value }))}>
+                  <option value="">Todos los Grupos</option>
+                  {GROUP_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
         )}
 
         {selectedScope === 'course' && (
-            <div className="flex flex-col gap-4 p-4 bg-green-50 rounded-lg">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div>
-                      <label className="text-sm font-medium text-gray-700">Curso</label>
-                      <select
-                          className="w-full mt-1 p-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-[#23408e]"
-                          value={selectedCourse}
-                          onChange={e => { setSelectedCourse(e.target.value); setSelectedCourseModule(''); }}>
-                          <option value="">Todos los Cursos</option>
-                          {courseOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </select>
-                  </div>
-                  <div>
-                      <label className="text-sm font-medium text-gray-700">Módulo</label>
-                      <select
-                          className="w-full mt-1 p-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-[#23408e]"
-                          value={selectedCourseModule}
-                          onChange={e => setSelectedCourseModule(e.target.value)}
-                          disabled={!selectedCourse}>
-                          <option value="">Todos los Módulos</option>
-                          {courseModuleOptions.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
-                      </select>
-                  </div>
-                  <div>
-                      <label className="text-sm font-medium text-gray-700">Estudiante</label>
-                      <select
-                          className="w-full mt-1 p-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-[#23408e]"
-                          value={courseFilters.student}
-                          onChange={e => setCourseFilters(f => ({ ...f, student: e.target.value }))}>
-                          <option value="">Todos los Estudiantes</option>
-                          {studentOptions.map(s => <option key={s.id} value={s.id}>{s.name} {s.lastName}</option>)}
-                      </select>
-                  </div>
-                  <div>
-                      <label className="text-sm font-medium text-gray-700">Grupo</label>
-                      <select
-                          className="w-full mt-1 p-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-[#23408e]"
-                          value={courseFilters.group}
-                          onChange={e => setCourseFilters(f => ({ ...f, group: e.target.value }))}>
-                          <option value="">Todos los Grupos</option>
-                          {GROUP_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
-                      </select>
-                  </div>
+          <div className="flex flex-col gap-4 p-4 bg-green-50 rounded-lg">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className="text-sm font-medium text-gray-700">Curso</label>
+                <select
+                  className="w-full mt-1 p-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-[#23408e]"
+                  value={selectedCourse}
+                  onChange={e => { setSelectedCourse(e.target.value); setSelectedCourseModule(''); }}>
+                  <option value="">Todos los Cursos</option>
+                  {courseOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700">Módulo</label>
+                <select
+                  className="w-full mt-1 p-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-[#23408e]"
+                  value={selectedCourseModule}
+                  onChange={e => setSelectedCourseModule(e.target.value)}
+                  disabled={!selectedCourse}>
+                  <option value="">Todos los Módulos</option>
+                  {courseModuleOptions.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700">Estudiante</label>
+                <select
+                  className="w-full mt-1 p-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-[#23408e]"
+                  value={courseFilters.student}
+                  onChange={e => setCourseFilters(f => ({ ...f, student: e.target.value }))}>
+                  <option value="">Todos los Estudiantes</option>
+                  {studentOptions.map(s => <option key={s.id} value={s.id}>{s.name} {s.lastName}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700">Grupo</label>
+                <select
+                  className="w-full mt-1 p-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-[#23408e]"
+                  value={courseFilters.group}
+                  onChange={e => setCourseFilters(f => ({ ...f, group: e.target.value }))}>
+                  <option value="">Todos los Grupos</option>
+                  {GROUP_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
+                </select>
               </div>
             </div>
+          </div>
         )}
-        
+
         {/* Acciones y Búsqueda */}
         <div className="flex flex-col lg:flex-row lg:items-center gap-4 mt-6">
-            <div className="flex-1 relative">
-                <input
-                    type="text"
-                    placeholder="Buscar por estudiante, módulo o actividad..."
-                    className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border-none rounded-lg text-sm text-gray-700 focus:ring-1 focus:ring-[#23408e]"
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
-                />
-                <svg className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-                </svg>
-            </div>
-            <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
-                <button
-                    className="w-full lg:w-auto px-4 py-2 bg-[#009245] text-white rounded-lg hover:bg-[#007a36] font-medium text-sm flex items-center justify-center gap-2"
-                    onClick={() => { setEditGrade(null); setShowForm(true); }}>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>
-                    Nueva Nota
-                </button>
-                <button
-                    className="w-full lg:w-auto px-4 py-2 bg-[#ffd600] text-[#23408e] rounded-lg hover:bg-[#23408e] hover:text-white font-medium text-sm flex items-center justify-center gap-2"
-                    onClick={handleReport}>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                    Generar Informe
-                </button>
-            </div>
+          <div className="flex-1 relative">
+            <input
+              type="text"
+              placeholder="Buscar por estudiante, módulo o actividad..."
+              className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border-none rounded-lg text-sm text-gray-700 focus:ring-1 focus:ring-[#23408e]"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+            <svg className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
+            <button
+              className="w-full lg:w-auto px-4 py-2 bg-[#009245] text-white rounded-lg hover:bg-[#007a36] font-medium text-sm flex items-center justify-center gap-2"
+              onClick={() => { setEditGrade(null); setShowForm(true); }}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
+              Nueva Nota
+            </button>
+            <button
+              className="w-full lg:w-auto px-4 py-2 bg-[#ffd600] text-[#23408e] rounded-lg hover:bg-[#23408e] hover:text-white font-medium text-sm flex items-center justify-center gap-2"
+              onClick={handleReport}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              Generar Informe
+            </button>
+          </div>
         </div>
       </div>
 
@@ -558,7 +574,7 @@ const GradeManager = () => {
           let gradeColor = 'bg-red-50 text-red-700';
           if (gradeNum >= 3.0 && gradeNum < 4.0) gradeColor = 'bg-orange-50 text-orange-700';
           if (gradeNum >= 4.0) gradeColor = 'bg-green-50 text-green-700';
-          
+
           return (
             <div key={g.id} className="bg-white rounded-lg shadow-sm border border-gray-200 hover:border-blue-300 transition-all">
               <div className="p-4">
@@ -613,7 +629,7 @@ const GradeManager = () => {
                 });
                 const updatedGrades = grades.map(g => g.id === gradeData.id ? gradeData : g);
                 setGrades(updatedGrades);
-                
+
                 await syncStudentModuleStatus(db, gradeData.studentId, gradeData.moduleId || gradeData.moduleName, updatedGrades);
                 toast.success('Nota actualizada correctamente');
               } else {
@@ -625,10 +641,10 @@ const GradeManager = () => {
                   entityName: `Nota: ${gradeData.studentName}`,
                   details: `Nueva calificación cargada en ${gradeData.moduleName} (${gradeData.activityName}: ${gradeData.grade})`
                 });
-                
+
                 const updatedGrades = [gradeData, ...grades];
                 setGrades(updatedGrades);
-                
+
                 await syncStudentModuleStatus(db, gradeData.studentId, gradeData.moduleId || gradeData.moduleName, updatedGrades);
                 toast.success('Nota creada correctamente');
               }

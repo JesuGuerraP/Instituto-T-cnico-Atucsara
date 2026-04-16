@@ -9,17 +9,17 @@ const GROUP_OPTIONS = [
   { id: 'HABILITACION', name: 'HABILITACION' }
 ];
 
-const GradeForm = ({ 
-    students, 
-    teachers, 
-    modules, 
-    currentUser, 
-    onClose, 
-    onSave, 
-    editGrade, 
-    selectedSemester, 
-    selectedPeriod,
-    scope = 'career' 
+const GradeForm = ({
+  students,
+  teachers,
+  modules,
+  currentUser,
+  onClose,
+  onSave,
+  editGrade,
+  selectedSemester,
+  selectedPeriod,
+  scope = 'career'
 }) => {
 
   // **NUEVO ESTADO**: para manejar múltiples estudiantes y sus notas
@@ -83,14 +83,14 @@ const GradeForm = ({
 
   const availableModules = useMemo(() => {
     return modules.filter(m => {
-        if (scope === 'career') {
-            if (m.source !== 'career') return false;
-            return !selectedSemester || String(m.semestre || m.semester) === String(selectedSemester);
-        }
-        if (scope === 'course') {
-            return m.source === 'course';
-        }
-        return false;
+      if (scope === 'career') {
+        if (m.source !== 'career') return false;
+        return !selectedSemester || String(m.semestre || m.semester) === String(selectedSemester);
+      }
+      if (scope === 'course') {
+        return m.source === 'course';
+      }
+      return false;
     });
   }, [modules, scope, selectedSemester]);
 
@@ -103,6 +103,11 @@ const GradeForm = ({
     // Filtro base: solo estudiantes activos
     const activeStudents = students.filter(s => s.status === 'active');
 
+    // Helper: detectar si un estudiante está repitiendo (tiene el módulo en reprobado)
+    const isRepeating = (s) =>
+      Array.isArray(s.modulosAsignados) &&
+      s.modulosAsignados.some(m => m.id === selectedModule.id && m.estado === 'reprobado');
+
     // Módulo general tratado como carrera: filtrar por carreras válidas, semestre y que tenga el módulo asignado
     if (scope === 'career' && selectedModule.isGeneral) {
       return activeStudents.filter(s => {
@@ -111,21 +116,22 @@ const GradeForm = ({
           : (selectedModule.carrera ? s.career === selectedModule.carrera : true);
         const validSemester = String(s.semester) === String(selectedModule.semestre) || String(s.semestre) === String(selectedModule.semestre);
         const hasModule = Array.isArray(s.modulosAsignados) && s.modulosAsignados.some(m => m.id === selectedModule.id);
-        return validCareer && validSemester && hasModule;
+        // Incluir si está en el semestre correcto O si está repitiendo (reprobado)
+        return validCareer && (validSemester && hasModule || isRepeating(s));
       });
     }
 
     // ESTRATEGIA 1: Si el módulo tiene propiedades de carrera/curso, filtrar estudiantes por eso
     if (scope === 'career' && selectedModule.careerId) {
-      // Filtrar estudiantes que pertenecen a la misma carrera Y al mismo semestre
       return activeStudents.filter(s => {
-        const isInCareer = s.careerId === selectedModule.careerId || 
-                          s.career === selectedModule.carrera ||
-                          s.carrera === selectedModule.carrera;
-        const isInSemester = !selectedSemester || 
-                            String(s.semester) === String(selectedSemester) ||
-                            String(s.semestre) === String(selectedSemester);
-        return isInCareer && isInSemester;
+        const isInCareer = s.careerId === selectedModule.careerId ||
+          s.career === selectedModule.carrera ||
+          s.carrera === selectedModule.carrera;
+        const isInSemester = !selectedSemester ||
+          String(s.semester) === String(selectedSemester) ||
+          String(s.semestre) === String(selectedSemester);
+        // Incluir si está en la carrera+semestre correcto, O si está repitiendo (en cualquier semestre)
+        return isInCareer && (isInSemester || isRepeating(s));
       });
     }
 
@@ -139,12 +145,13 @@ const GradeForm = ({
       });
     }
 
-    // ESTRATEGIA 3: Mostrar todos los estudiantes del semestre actual
-    return activeStudents.filter(s => 
-      !selectedSemester || 
-      String(s.semester) === String(selectedSemester) ||
-      String(s.semestre) === String(selectedSemester)
-    );
+    // ESTRATEGIA 3: Mostrar estudiantes del semestre actual + estudiantes que repiten el módulo
+    return activeStudents.filter(s => {
+      const isInSemester = !selectedSemester ||
+        String(s.semester) === String(selectedSemester) ||
+        String(s.semestre) === String(selectedSemester);
+      return isInSemester || isRepeating(s);
+    });
   }, [form.moduleId, availableModules, students, scope, selectedSemester]);
 
   const handleChange = e => {
@@ -189,7 +196,7 @@ const GradeForm = ({
 
   const handleSubmit = e => {
     e.preventDefault();
-    
+
     const isEditing = !!editGrade;
 
     if (isEditing) {
@@ -218,17 +225,17 @@ const GradeForm = ({
         const studentId = student.value;
         const studentData = students.find(s => s.id === studentId);
         const grade = studentGrades[studentId];
-        
+
         const isHabilitacion = form.groupId === 'HABILITACION';
-        
+
         const gradeData = {
           ...form,
           studentId: studentId,
           studentName: studentData ? `${studentData.name} ${studentData.lastName}` : '',
           grade: grade,
-          id: isHabilitacion 
-               ? `${studentId}_${form.moduleId}_HABILITACION`
-               : `${studentId}_${form.moduleId}_${form.activityName.replace(/\s+/g, '-')}_${Date.now()}`
+          id: isHabilitacion
+            ? `${studentId}_${form.moduleId}_HABILITACION`
+            : `${studentId}_${form.moduleId}_${form.activityName.replace(/\s+/g, '-')}_${Date.now()}`
         };
 
         if (scope === 'career') {
@@ -236,7 +243,7 @@ const GradeForm = ({
         } else {
           delete gradeData.semester;
         }
-        
+
         onSave(gradeData, false);
       });
     }
@@ -256,7 +263,7 @@ const GradeForm = ({
         <h2 className="text-2xl font-bold mb-6 text-[#23408e]">{editGrade ? 'Editar Nota' : 'Registrar Nuevas Notas'}</h2>
         <form onSubmit={handleSubmit}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            
+
             <div>
               <label className="block font-semibold mb-1 text-[#009245]">Módulo:</label>
               <select name="moduleId" value={form.moduleId} onChange={handleChange} className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#23408e]" required>
@@ -296,7 +303,7 @@ const GradeForm = ({
 
             <div>
               <label className="block font-semibold mb-1 text-[#009245]">Nombre de la Actividad:</label>
-              <input type="text" name="activityName" value={form.activityName} onChange={handleChange} className="w-full p-2 border border-gray-300 rounded-md" placeholder="Ej: Prueba escrita, Taller" required disabled={form.groupId === 'HABILITACION'}/>
+              <input type="text" name="activityName" value={form.activityName} onChange={handleChange} className="w-full p-2 border border-gray-300 rounded-md" placeholder="Ej: Prueba escrita, Taller" required disabled={form.groupId === 'HABILITACION'} />
             </div>
 
             <div>
