@@ -83,7 +83,7 @@ const AdminDashboard = () => {
           if (col === 'students') {
             items = items.map(s => {
               const dateSource = s.createdAt?.toDate ? s.createdAt.toDate() : s.createdAt;
-              const calculated = s.period || s.periodo || (dateSource ? calculatePeriod(dateSource) : '');
+              const calculated = dateSource ? calculatePeriod(dateSource) : (s.period || s.periodo || '');
               return { ...s, period: calculated, periodo: calculated };
             });
           }

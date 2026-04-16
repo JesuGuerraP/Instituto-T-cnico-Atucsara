@@ -97,7 +97,8 @@ const StudentsTable = () => {
         const querySnapshot = await getDocs(q);
         const studentsData = querySnapshot.docs.map(doc => {
           const data = doc.data();
-          const period = data.period || (data.createdAt ? calculatePeriod(data.createdAt) : '');
+          // Forzar la creación del periodo en base a createdAt primero para ignorar posibles datos sobreescritos
+          const period = data.createdAt ? calculatePeriod(data.createdAt) : (data.period || '');
           return {
             id: doc.id,
             ...data,

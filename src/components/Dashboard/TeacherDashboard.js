@@ -147,7 +147,8 @@ const TeacherDashboard = () => {
 
         const allStudents = studentsSnap.docs.map(d => {
           const data = d.data();
-          return { id: d.id, ...data, period: data.period || (data.createdAt ? calculatePeriod(data.createdAt) : 'Sin periodo') };
+          const period = data.createdAt ? calculatePeriod(data.createdAt) : (data.period || 'Sin periodo');
+          return { id: d.id, ...data, period };
         }).filter(s => s.status === 'active');
 
         // Filter students in career/general modules

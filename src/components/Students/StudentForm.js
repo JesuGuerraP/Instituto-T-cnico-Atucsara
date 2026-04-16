@@ -105,13 +105,18 @@ const StudentForm = () => {
     e.preventDefault();
     try {
       const now = new Date();
-      const period = calculatePeriod(now);
+      
+      let studentCreatedAt = student.createdAt;
+      if (!studentCreatedAt) {
+        studentCreatedAt = now.toISOString();
+      }
+      const period = calculatePeriod(studentCreatedAt);
       
       let studentData = {
         ...student,
         semester: student.semester ? String(student.semester) : '',
         courses: Array.isArray(student.courses) ? student.courses : [],
-        period: period, // Agregar período calculado
+        period: period, // Agregar o mantener período calculado según createdAt
         updatedAt: now.toISOString()
       };
 

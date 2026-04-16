@@ -8,7 +8,21 @@
 export const calculatePeriod = (date) => {
   if (!date) return '';
   
-  const dateObj = typeof date === 'string' ? new Date(date) : date;
+  let dateObj;
+  if (typeof date === 'string') {
+    dateObj = new Date(date);
+  } else if (typeof date === 'object' && typeof date.toDate === 'function') {
+    dateObj = date.toDate();
+  } else if (typeof date === 'object' && date.seconds) {
+    dateObj = new Date(date.seconds * 1000);
+  } else {
+    dateObj = date; // Fallback para Date object
+  }
+
+  if (!(dateObj instanceof Date) || isNaN(dateObj.getTime())) {
+    return '';
+  }
+
   const year = dateObj.getFullYear();
   const month = dateObj.getMonth() + 1; // getMonth() es 0-indexed
   
