@@ -266,16 +266,30 @@ const TeacherDashboard = () => {
       const ref = doc(db, 'students', studentId);
       const snap = await getDoc(ref);
       if (snap.exists()) {
-        const upd = (snap.data().seminarios || []).map(s => s.id === seminarioId ? { ...s, estado: newStatus } : s);
+        const isAprobado = newStatus === 'aprobado';
+        const upd = (snap.data().seminarios || []).map(s => {
+          if (s.id === seminarioId) {
+            return {
+              ...s,
+              estado: newStatus,
+              aprobadoPor: isAprobado ? (currentUser?.uid || 'docente') : '',
+              fechaAprobacion: isAprobado ? new Date().toISOString() : ''
+            };
+          }
+          return s;
+        });
         await updateDoc(ref, { seminarios: upd });
         setEstudiantesPorSeminario(prev => {
           const n = { ...prev };
           if (n[seminarioId]) n[seminarioId] = n[seminarioId].map(e => e.id === studentId ? { ...e, seminarios: upd } : e);
           return n;
         });
-        toast.success('Estado actualizado');
+        toast.success(`Estado actualizado a ${newStatus}`);
       }
-    } catch { toast.error('Error al actualizar'); }
+    } catch (e) { 
+      console.error(e);
+      toast.error('Error al actualizar'); 
+    }
   };
 
   const handlePrintReceipt = (pago) => {
@@ -849,7 +863,15 @@ const TeacherDashboard = () => {
             TAB: SEMINARIOS
         ══════════════════════════════════════════ */}
         {activeTab === 'seminarios' && (
-          <div className="animate-in fade-in duration-300">
+          <div className="animate-in fade-in duration-300 space-y-6">
+            {/* Cabecera con instrucciones */}
+            <div className="bg-purple-50 border border-purple-200 rounded-2xl p-4">
+              <p className="text-xs text-purple-700 font-semibold leading-relaxed">
+                <strong>Control de participación:</strong> Solo existen 2 estados — <span className="text-emerald-700 font-black">✓ Aprobado</span> (participó) y <span className="text-amber-700 font-black">⏳ Pendiente</span> (no participó).
+                Haz clic en <strong>Gestionar Grupo</strong> para cambiar el estado de cada estudiante.
+              </p>
+            </div>
+
             {seminariosAsignados.length === 0 ? (
               <div className="py-20 text-center bg-white rounded-2xl shadow-sm border border-slate-100">
                 <TableReport size="40" className="mx-auto text-slate-200 mb-4" />
@@ -858,20 +880,39 @@ const TeacherDashboard = () => {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                 {seminariosAsignados.map(sem => {
-                  const count = (estudiantesPorSeminario[sem.id] || []).length;
+                  const studList = estudiantesPorSeminario[sem.id] || [];
+                  const aprobados = studList.filter(s => {
+                    const ss = (s.seminarios || []).find(e => e.id === sem.id || e.nombre === sem.nombre);
+                    return (ss?.estado || '').toLowerCase() === 'aprobado';
+                  }).length;
+                  const total = studList.length;
+                  const pct = total > 0 ? Math.round((aprobados / total) * 100) : 0;
+
                   return (
                     <div key={sem.id} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-md transition-all flex flex-col justify-between">
-                      <div className="mb-5">
+                      <div className="mb-4">
                         <div className="flex justify-between items-start mb-3">
-                          <span className="px-3 py-1 bg-purple-50 text-purple-700 rounded-full text-[9px] font-black uppercase tracking-widest border border-purple-100">
-                            Seminario
-                          </span>
-                          <span className="text-[9px] font-black text-slate-300 uppercase tracking-tight truncate max-w-[110px]">
-                            {sem.carreraNombre}
-                          </span>
+                          <span className="px-3 py-1 bg-purple-50 text-purple-700 rounded-full text-[9px] font-black uppercase tracking-widest border border-purple-100">Seminario</span>
+                          <span className="text-[9px] font-black text-slate-300 uppercase tracking-tight truncate max-w-[110px]">{sem.carreraNombre}</span>
                         </div>
-                        <h4 className="text-base font-black text-slate-800 leading-snug mb-1">{sem.nombre}</h4>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">{count} estudiante{count !== 1 ? 's' : ''}</p>
+                        <h4 className="text-base font-black text-slate-800 leading-snug mb-3">{sem.nombre}</h4>
+                        {/* Barra de progreso */}
+                        <div className="mb-3">
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="text-[10px] font-bold text-slate-400">Aprobados</span>
+                            <span className="text-[10px] font-black text-purple-700">{aprobados}/{total}</span>
+                          </div>
+                          <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-purple-500 to-purple-600 rounded-full transition-all"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">✓ {aprobados} aprobados</span>
+                          <span className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full">⏳ {total - aprobados} pendientes</span>
+                        </div>
                       </div>
                       <button
                         onClick={() => { setSelectedSeminario(sem); setShowSeminarioModal(true); }}
@@ -1078,7 +1119,7 @@ const TeacherDashboard = () => {
               <div className="flex justify-between items-center p-8 border-b bg-gradient-to-r from-purple-700 to-purple-500 text-white">
                 <div>
                   <h2 className="text-xl font-black tracking-tight">{selectedSeminario.nombre}</h2>
-                  <p className="text-white/60 text-[10px] font-black uppercase mt-1">{selectedSeminario.carreraNombre}</p>
+                  <p className="text-white/60 text-[10px] font-black uppercase mt-1">{selectedSeminario.carreraNombre} · Solo: \u2713 Aprobado / \u23f3 Pendiente</p>
                 </div>
                 <button onClick={() => setShowSeminarioModal(false)} className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30 transition-colors">
                   <Close size="20" />
@@ -1089,29 +1130,35 @@ const TeacherDashboard = () => {
                   <thead className="sticky top-0 bg-slate-50 shadow-sm">
                     <tr>
                       <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Estudiante</th>
-                      <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Carrera</th>
+                      <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Período</th>
                       <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Estado</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {(estudiantesPorSeminario[selectedSeminario.id] || []).map(est => {
-                      const sData = est.seminarios?.find(s => s.id === selectedSeminario.id);
+                      const sData = est.seminarios?.find(s => s.id === selectedSeminario.id || s.nombre === selectedSeminario.nombre);
+                      const estado = (sData?.estado || 'pendiente').toLowerCase();
                       return (
                         <tr key={est.id} className="hover:bg-purple-50/20 transition-colors">
                           <td className="px-8 py-4">
                             <p className="font-black text-slate-800 text-sm">{est.name} {est.lastName}</p>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase">{est.email}</p>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase">{est.career}</p>
                           </td>
-                          <td className="px-8 py-4 text-[10px] font-black text-slate-500 uppercase">{est.career}</td>
+                          <td className="px-8 py-4">
+                            <span className="text-[10px] font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{est.period || '—'}</span>
+                          </td>
                           <td className="px-8 py-4 text-center">
                             <select
-                              value={sData?.estado || 'pendiente'}
+                              value={estado}
                               onChange={e => updateSeminarioStatus(est.id, selectedSeminario.id, e.target.value)}
-                              className="px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border border-purple-100 bg-white text-purple-700"
+                              className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border cursor-pointer ${
+                                estado === 'aprobado'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : 'bg-amber-50 text-amber-700 border-amber-200'
+                              }`}
                             >
-                              <option value="pendiente">Pendiente</option>
-                              <option value="cursando">Cursando</option>
-                              <option value="aprobado">Aprobado</option>
+                              <option value="pendiente">⏳ Pendiente</option>
+                              <option value="aprobado">✓ Aprobado</option>
                             </select>
                           </td>
                         </tr>

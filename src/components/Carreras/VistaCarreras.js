@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { DegreeHat, Edit, Add, Book } from '@icon-park/react';
+import { DegreeHat, Edit, Add, Book, Lightning } from '@icon-park/react';
 import { FaTrash } from 'react-icons/fa';
 import { collection, getDocs, addDoc, updateDoc, doc, query, where, deleteDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 import { toast, ToastContainer } from 'react-toastify';
 import { saveActivity } from '../../utils/activityLogger';
 import 'react-toastify/dist/ReactToastify.css';
+import SeminariosManager from '../Seminarios/SeminariosManager';
 
 const VistaCarreras = () => {
   const { currentUser } = useAuth();
@@ -27,14 +28,11 @@ const VistaCarreras = () => {
   // Formulario Nuevo Módulo
   const [formModulo, setFormModulo] = useState({ nombre: '', profesor: [], sabadosSemana: 1, descripcion: '', semestre: 1 });
   const [editandoModulo, setEditandoModulo] = useState(null);
-  // Estado para seminarios obligatorios
+  // Estado para seminarios — nuevo gestor
+
+  // LEGACY: mantener compatibilidad
   const [modalSeminarios, setModalSeminarios] = useState(false);
-  const [seminariosEdit, setSeminariosEdit] = useState([
-    { nombre: 'Seminario I', profesor: '', horas: 20, semestre: 1, estado: 'Activo' },
-    { nombre: 'Seminario II', profesor: '', horas: 20, semestre: 2, estado: 'Activo' },
-    { nombre: 'Seminario III', profesor: '', horas: 20, semestre: 3, estado: 'Activo' },
-    { nombre: 'Seminario IV', profesor: '', horas: 20, semestre: 4, estado: 'Activo' },
-  ]);
+  const [seminariosEdit, setSeminariosEdit] = useState([]);
 
   // Cargar carreras y módulos desde Firestore
   const fetchCarreras = async () => {
@@ -81,51 +79,23 @@ const VistaCarreras = () => {
 
   // Cargar seminarios de la carrera seleccionada
   useEffect(() => {
-    if (carreraSeleccionada && carreraSeleccionada.seminarios) {
+    if (carreraSeleccionada?.seminarios) {
       setSeminariosEdit(carreraSeleccionada.seminarios);
-    } else if (carreraSeleccionada) {
-      setSeminariosEdit([
-        { nombre: 'Seminario I', profesor: '', horas: 20, semestre: 1, estado: 'Activo' },
-        { nombre: 'Seminario II', profesor: '', horas: 20, semestre: 2, estado: 'Activo' },
-        { nombre: 'Seminario III', profesor: '', horas: 20, semestre: 3, estado: 'Activo' },
-        { nombre: 'Seminario IV', profesor: '', horas: 20, semestre: 4, estado: 'Activo' },
-      ]);
+    } else {
+      setSeminariosEdit([]);
     }
   }, [carreraSeleccionada]);
 
-  // Sincronizar estados de seminarios en estudiantes cuando se edita en la carrera
-  useEffect(() => {
-    if (!carreraSeleccionada || !carreraSeleccionada.seminarios) return;
-    const actualizarSeminariosEstudiantes = async () => {
-      // Buscar estudiantes de la carrera
-      const estudiantesSnap = await getDocs(collection(db, 'students'));
-      const estudiantes = estudiantesSnap.docs.filter(doc => doc.data().career === carreraSeleccionada.nombre);
-      for (const est of estudiantes) {
-        let seminariosEst = Array.isArray(est.data().seminarios) ? [...est.data().seminarios] : [];
-        // Actualizar o agregar cada seminario de la carrera
-        carreraSeleccionada.seminarios.forEach((sem, idx) => {
-          const id = `seminario${idx+1}`;
-          const existente = seminariosEst.find(s => s.id === id);
-          if (existente) {
-            existente.nombre = sem.nombre;
-            existente.profesor = sem.profesor;
-            existente.horas = sem.horas;
-            existente.semestre = sem.semestre;
-            existente.estado = sem.estado?.toLowerCase();
-          } else {
-            seminariosEst.push({ id, nombre: sem.nombre, profesor: sem.profesor, horas: sem.horas, semestre: sem.semestre, estado: sem.estado?.toLowerCase() });
-          }
-        });
-        await updateDoc(doc(db, 'students', est.id), { seminarios: seminariosEst });
-      }
-    };
-    actualizarSeminariosEstudiantes();
-  }, [carreraSeleccionada?.seminarios]);
 
   // Abrir módulos de una carrera
   const handleVerModulos = (carrera) => {
     setCarreraSeleccionada(carrera);
     setTab('modulos');
+  };
+
+  const handleVerSeminarios = (carrera) => {
+    setCarreraSeleccionada(carrera);
+    setTab('seminarios');
   };
 
   // Crear carrera en Firestore
@@ -332,98 +302,145 @@ const VistaCarreras = () => {
 
   return (
     <div className="p-2 sm:p-4 md:p-8 bg-white min-h-screen">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-        <div className="w-full md:w-auto">
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 flex items-center gap-2">
-            <DegreeHat theme="outline" size="32" className="text-blue-600" />
-            Gestión de Carreras
-          </h1>
-          <p className="text-gray-600 mt-2 text-sm sm:text-base">Administra las carreras técnicas, sus módulos y profesores asignados</p>
+      <div className="flex flex-col md:flex-row justify-between items-center mb-12 gap-6 bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm transition-all hover:shadow-md">
+        <div className="flex items-center gap-5">
+          <div className="w-16 h-16 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/20">
+            <DegreeHat theme="filled" size="36" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-black text-slate-800 tracking-tight leading-tight">
+              Gestión de <span className="text-blue-600">Carreras Técnicas</span>
+            </h1>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mt-1">Estructura Académica • Atucsara Portal</p>
+          </div>
         </div>
         <button
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 sm:px-5 py-2 rounded-md font-semibold flex items-center gap-2 shadow transition-all w-full md:w-auto text-base sm:text-lg"
+          className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center gap-3 shadow-xl shadow-blue-500/20 transition-all hover:-translate-y-1 active:scale-95 w-full md:w-auto justify-center"
           onClick={() => setModalCarrera(true)}
         >
           <Add theme="outline" size="20" /> Nueva Carrera
         </button>
       </div>
-      {/* Tabs */}
-      <div className="flex flex-wrap items-center gap-2 mb-6">
+
+      {/* Tabs / Navegación */}
+      <div className="flex flex-wrap items-center gap-3 mb-10 bg-slate-50 p-2 rounded-3xl border border-slate-100 w-fit">
         <button
-          className={`px-3 py-2 rounded-lg shadow-sm border text-xs sm:text-base ${tab === 'carreras' ? 'bg-blue-600 text-white font-bold border-blue-600' : 'bg-white text-blue-600 border-gray-200 hover:bg-blue-50'}`}
+          className={`px-8 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all ${
+            tab === 'carreras' 
+              ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' 
+              : 'text-slate-400 hover:bg-white hover:text-blue-600'
+          }`}
           onClick={() => setTab('carreras')}
         >
           Lista de Carreras
         </button>
+        
         {tab === 'modulos' && carreraSeleccionada && (
-          <button
-            className="px-3 py-2 rounded-lg shadow-sm border bg-blue-600 text-white font-bold border-blue-600 text-xs sm:text-base"
-            disabled
-          >
-            Módulos - {carreraSeleccionada.nombre}
-          </button>
+          <div className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-blue-50 text-blue-700 border border-blue-100 shadow-sm animate-in zoom-in-95 duration-300">
+            <Book theme="filled" size="14" />
+            <span className="text-[11px] font-black uppercase tracking-widest">
+              Módulos: {carreraSeleccionada.nombre}
+            </span>
+          </div>
+        )}
+        
+        {tab === 'seminarios' && carreraSeleccionada && (
+          <div className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-green-50 text-green-700 border border-green-100 shadow-sm animate-in zoom-in-95 duration-300">
+            <Lightning theme="filled" size="14" />
+            <span className="text-[11px] font-black uppercase tracking-widest">
+              Seminarios: {carreraSeleccionada.nombre}
+            </span>
+          </div>
         )}
       </div>
-      {/* Lista de Carreras */}
+
+      {/* Lista de Carreras — Rediseño Profesional */}
       {tab === 'carreras' && (
-        <div className="grid gap-6">
-          <div className="bg-white rounded-lg shadow p-2 sm:p-4 border-t-4 border-blue-600 overflow-x-auto">
-            <h2 className="text-lg sm:text-xl font-bold flex items-center gap-2 mb-4 text-blue-700">
-              <DegreeHat theme="outline" size="28" className="text-blue-600" />
-              Carreras Técnicas
-            </h2>
-            <div className="w-full overflow-x-auto">
-              <table className="min-w-[500px] sm:min-w-[600px] w-full text-xs sm:text-base border rounded-lg">
-                <thead>
-                  <tr className="bg-blue-600 text-white">
-                    <th className="py-2 sm:py-3 px-1 sm:px-2 text-left font-semibold rounded-tl-xl">Carrera</th>
-                    <th className="py-2 sm:py-3 px-1 sm:px-2 text-left font-semibold">Descripción</th>
-                    <th className="py-2 sm:py-3 px-1 sm:px-2 text-center font-semibold">Duración</th>
-                    <th className="py-2 sm:py-3 px-1 sm:px-2 text-center font-semibold">Estado</th>
-                    <th className="py-2 sm:py-3 px-1 sm:px-2 text-center font-semibold rounded-tr-xl">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {carreras.map((c) => (
-                    <tr key={c.id} className="border-t hover:bg-blue-50 transition-all">
-                      <td className="font-bold py-2 px-1 sm:px-2 max-w-[90px] sm:max-w-[120px] truncate text-blue-700">{c.nombre}</td>
-                      <td className="max-w-[120px] sm:max-w-[180px] truncate px-1 sm:px-2 text-gray-600">{c.descripcion}</td>
-                      <td className="text-center px-1 sm:px-2">{c.duracion} semestres</td>
-                      <td className="text-center px-1 sm:px-2">
-                        <span className="inline-block bg-green-100 text-green-800 px-2 sm:px-4 py-1 rounded-full text-xs font-semibold shadow">
-                          {c.estado}
-                        </span>
-                      </td>
-                      <td className="text-center px-1 sm:px-2">
-                        {/* Botón Editar carrera */}
-                        <button
-                          className="p-1 mr-2 rounded hover:bg-gray-100 transition-all"
-                          title="Editar carrera"
-                          onClick={() => handleEditarCarrera(c)}
-                        >
-                          <Edit theme="outline" size="18" />
-                        </button>
-                        {/* Botón Eliminar carrera */}
-                        <button
-                          className="p-1 mr-2 rounded hover:bg-red-100 transition-all text-red-600"
-                          title="Eliminar carrera"
-                          onClick={() => confirmarEliminacionCarrera(c.id)}
-                        >
-                          <FaTrash size="18" />
-                        </button>
-                        <button
-                          className="bg-blue-50 text-blue-600 px-2 sm:px-3 py-1 rounded font-semibold text-xs sm:text-sm hover:bg-blue-100 transition-all"
-                          onClick={() => handleVerModulos(c)}
-                        >
-                          Ver Módulos
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          {carreras.map((c) => (
+            <div 
+              key={c.id} 
+              className="bg-white rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 overflow-hidden group"
+            >
+              {/* Header de la tarjeta */}
+              <div className="p-6 pb-4 flex justify-between items-start border-b border-slate-50">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center shadow-inner group-hover:scale-110 transition-transform duration-500">
+                    <DegreeHat theme="filled" size="28" />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-slate-800 text-lg leading-tight uppercase tracking-tight">
+                      {c.nombre}
+                    </h3>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-2 py-0.5 rounded-full border border-slate-100">
+                        {c.duracion} Semestres
+                      </span>
+                      <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border ${
+                        c.estado === 'Activa' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-red-50 text-red-600 border-red-100'
+                      }`}>
+                        {c.estado}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Acciones de administración (Edit/Delete) */}
+                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                  <button 
+                    onClick={() => handleEditarCarrera(c)}
+                    className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                    title="Editar Carrera"
+                  >
+                    <Edit theme="outline" size="18" />
+                  </button>
+                  <button 
+                    onClick={() => confirmarEliminacionCarrera(c.id)}
+                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                    title="Eliminar Carrera"
+                  >
+                    <FaTrash size="16" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Cuerpo / Descripción */}
+              <div className="p-6 py-5">
+                <p className="text-slate-500 text-sm font-medium leading-relaxed line-clamp-2 h-10 mb-4 italic">
+                  {c.descripcion || "Sin descripción disponible para esta carrera técnica."}
+                </p>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-slate-50/50 p-3 rounded-2xl border border-slate-100/50">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Módulos</p>
+                    <p className="text-xl font-black text-blue-700">{(c.modulos || []).length}</p>
+                  </div>
+                  <div className="bg-slate-50/50 p-3 rounded-2xl border border-slate-100/50">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Seminarios</p>
+                    <p className="text-xl font-black text-green-700">{(c.seminarios || []).length}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Botones de acción principales */}
+              <div className="p-6 pt-0 flex gap-2">
+                <button
+                  onClick={() => handleVerModulos(c)}
+                  className="flex-1 bg-[#23408e] hover:bg-[#1a306d] text-white py-3 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-lg shadow-blue-900/10 hover:shadow-blue-900/20 transition-all flex items-center justify-center gap-2"
+                >
+                  <Book theme="outline" size="16" />
+                  Ver Módulos
+                </button>
+                <button
+                  onClick={() => handleVerSeminarios(c)}
+                  className="flex-1 bg-green-600 hover:bg-green-700 text-white py-3 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-lg shadow-green-900/10 hover:shadow-green-900/20 transition-all flex items-center justify-center gap-2"
+                >
+                  <Lightning theme="outline" size="16" />
+                  Seminarios
+                </button>
+              </div>
             </div>
-          </div>
+          ))}
         </div>
       )}
 
@@ -443,56 +460,7 @@ const VistaCarreras = () => {
                 <Add theme="outline" size="20" /> Nuevo Módulo
               </button>
             </div>
-            {/* Seminarios obligatorios fijos con edición */}
-            <div className="mb-8">
-              <h3 className="text-base sm:text-lg font-bold text-green-700 mb-2 flex flex-col sm:flex-row items-start sm:items-center gap-2">
-                <span className="flex items-center gap-2"><Book theme="outline" size="20" className="text-green-600" /> Seminarios obligatorios</span>
-                <button
-                  className="ml-0 sm:ml-2 mt-2 sm:mt-0 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-semibold hover:bg-green-200 border border-green-300 w-full sm:w-auto"
-                  onClick={() => setModalSeminarios(true)}
-                >Editar seminarios</button>
-              </h3>
-              <div className="overflow-x-auto">
-                <table className="min-w-[400px] w-full text-xs sm:text-base border rounded-lg">
-                  <thead>
-                    <tr className="bg-green-100 text-green-900">
-                      <th className="py-2 px-2 text-left font-semibold">Nombre</th>
-                      <th className="py-2 px-2 text-center font-semibold">Profesor</th>
-                      <th className="py-2 px-2 text-center font-semibold">Horas</th>
-                      <th className="py-2 px-2 text-center font-semibold">Semestre</th>
-                      <th className="py-2 px-2 text-center font-semibold">Estado</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(carreraSeleccionada?.seminarios || seminariosEdit).map((s, idx) => {
-                      let estadoColor = '';
-                      switch (s.estado?.toLowerCase()) {
-                        case 'aprobado':
-                          estadoColor = 'bg-green-100 text-green-800 border-green-300';
-                          break;
-                        case 'cursando':
-                          estadoColor = 'bg-blue-100 text-blue-800 border-blue-300';
-                          break;
-                        case 'pendiente':
-                        default:
-                          estadoColor = 'bg-gray-100 text-gray-700 border-gray-300';
-                      }
-                      return (
-                        <tr key={idx} className="border-b">
-                          <td className="py-2 px-2 font-semibold text-green-900 break-words max-w-[120px] sm:max-w-none">{s.nombre}</td>
-                          <td className="py-2 px-2 text-center break-words max-w-[100px] sm:max-w-none">{(Array.isArray(s.profesor) ? s.profesor.join(', ') : s.profesor) || <span className='italic text-gray-400'>Sin asignar</span>}</td>
-                          <td className="py-2 px-2 text-center">{s.horas}</td>
-                          <td className="py-2 px-2 text-center">{s.semestre}</td>
-                          <td className="py-2 px-2 text-center">
-                            <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold border ${estadoColor}`}>{s.estado}</span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+
             {/* Agrupar módulos por semestre */}
             {[...Array(carreraSeleccionada.duracion)].map((_, idx) => {
               const semestre = idx + 1;
@@ -535,6 +503,18 @@ const VistaCarreras = () => {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+      {/* Vista de Seminarios (Separada) */}
+      {tab === 'seminarios' && carreraSeleccionada && (
+        <div className="fade-in duration-500">
+          <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
+            <SeminariosManager 
+              carreraId={carreraSeleccionada.id}
+              carreraNombre={carreraSeleccionada.nombre}
+              onClose={() => setTab('carreras')}
+            />
           </div>
         </div>
       )}
@@ -694,7 +674,9 @@ const VistaCarreras = () => {
           </div>
         </div>
       )}
-      {/* Modal edición seminarios */}
+
+
+      {/* Modal edición seminarios LEGACY (mantenido para compatibilidad) */}
       {modalSeminarios && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
           <div className="bg-white rounded-lg shadow-lg p-4 sm:p-8 max-w-2xl w-full relative border-t-4 border-green-600 mx-2">

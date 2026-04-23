@@ -303,7 +303,7 @@ const AcademicSection = ({
         )}
       </div>
 
-      {/* Seminarios obligatorios como un único bloque desplegable */}
+      {/* Seminarios obligatorios — Panel mejorado con progreso individual */}
       {careerSeminarios && careerSeminarios.length > 0 && (
         <PremiumCard className="mt-12 overflow-hidden !p-0 border-none shadow-none bg-transparent">
           <button
@@ -317,7 +317,7 @@ const AcademicSection = ({
               <div className="text-left">
                 <h3 className="text-xl font-black text-gray-900 leading-tight">Seminarios Obligatorios</h3>
                 <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">
-                  {careerSeminarios.length} Seminarios Registrados
+                  {careerSeminarios.length} Seminarios · Solo participación
                 </p>
               </div>
             </div>
@@ -332,39 +332,88 @@ const AcademicSection = ({
           </button>
 
           {openSemesters['all-seminarios'] && (
-            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 animate-in slide-in-from-top-4 duration-500">
-              {careerSeminarios.map((seminario) => {
-                const studentSem = studentInfo?.seminarios?.find(s => s.id === seminario.id);
-                const estado = studentSem?.estado || seminario.estado || 'pendiente';
-                
+            <div className="mt-6 animate-in slide-in-from-top-4 duration-500">
+              {/* Barra de progreso general */}
+              {(() => {
+                const aprobados = careerSeminarios.filter(s => {
+                  const ss = studentInfo?.seminarios?.find(e => e.id === s.id || e.nombre === s.nombre);
+                  return (ss?.estado || '').toLowerCase() === 'aprobado';
+                }).length;
+                const total = careerSeminarios.length;
+                const pct = total > 0 ? Math.round((aprobados / total) * 100) : 0;
                 return (
-                  <div key={seminario.id} className="p-6 rounded-3xl bg-white border border-gray-100 hover:shadow-xl transition-all duration-300 relative overflow-hidden group">
-                    <div className={`absolute top-0 right-0 w-2 h-full opacity-20 ${estado === 'aprobado' ? 'bg-green-500' : 'bg-orange-500'}`} />
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="p-2 rounded-xl bg-gray-50 text-[#23408e] mb-2 group-hover:bg-[#23408e] group-hover:text-white transition-all">
-                        <Book theme="outline" size="18" />
+                  <div className="bg-white border border-gray-100 rounded-2xl p-5 mb-5 flex items-center gap-6">
+                    <div className="flex-1">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-xs font-black text-gray-500 uppercase tracking-wider">Progreso de Seminarios</span>
+                        <span className="text-xs font-black text-purple-700">{aprobados}/{total} aprobados</span>
                       </div>
-                      <span className={`px-2.5 py-1 rounded-xl text-[9px] font-black uppercase border tracking-tighter ${
-                        estado === 'aprobado' ? 'bg-green-50 text-green-700 border-green-100' : 
-                        'bg-orange-50 text-orange-700 border-orange-100'
-                      }`}>
-                        {estado}
-                      </span>
-                    </div>
-                    <h5 className="font-black text-gray-900 text-sm leading-tight mb-4 group-hover:text-[#23408e] transition-colors">{seminario.nombre}</h5>
-                    <div className="space-y-2 pt-4 border-t border-gray-50 border-dashed">
-                      <div className="flex items-center justify-between">
-                        <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Profesor</p>
-                        <p className="text-[10px] text-gray-900 font-black">{seminario.profesor || 'Sin asignar'}</p>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Semestre</p>
-                        <p className="text-[10px] text-gray-900 font-black">{seminario.semestre || seminario.semester || '-'}</p>
+                      <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-purple-500 to-purple-600 transition-all duration-700"
+                          style={{ width: `${pct}%` }}
+                        />
                       </div>
                     </div>
+                    <div className="text-3xl font-black text-purple-700 shrink-0">{pct}%</div>
                   </div>
                 );
-              })}
+              })()}
+
+              {/* Cards de cada seminario */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {careerSeminarios.map((seminario) => {
+                  const studentSem = studentInfo?.seminarios?.find(
+                    s => s.id === seminario.id || s.nombre === seminario.nombre
+                  );
+                  const estado = (studentSem?.estado || 'pendiente').toLowerCase();
+                  const isAprobado = estado === 'aprobado';
+
+                  return (
+                    <div key={seminario.id} className="p-6 rounded-3xl bg-white border border-gray-100 hover:shadow-xl transition-all duration-300 relative overflow-hidden group">
+                      {/* Barra lateral de estado */}
+                      <div className={`absolute top-0 left-0 w-1.5 h-full ${isAprobado ? 'bg-emerald-400' : 'bg-amber-300'}`} />
+                      <div className="flex justify-between items-start mb-4 pl-2">
+                        <div className="p-2 rounded-xl bg-gray-50 text-purple-600 group-hover:bg-purple-600 group-hover:text-white transition-all">
+                          <Book theme="outline" size="18" />
+                        </div>
+                        <span className={`px-2.5 py-1 rounded-xl text-[9px] font-black uppercase border tracking-tighter ${
+                          isAprobado
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                            : 'bg-amber-50 text-amber-700 border-amber-100'
+                        }`}>
+                          {isAprobado ? '✓ Aprobado' : '⏳ Pendiente'}
+                        </span>
+                      </div>
+                      <h5 className="font-black text-gray-900 text-sm leading-tight mb-4 pl-2 group-hover:text-purple-700 transition-colors">
+                        {seminario.nombre}
+                      </h5>
+                      <div className="space-y-2 pt-4 border-t border-gray-50 border-dashed pl-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Profesor</p>
+                          <p className="text-[10px] text-gray-900 font-black truncate max-w-[140px]">{seminario.profesor || 'Sin asignar'}</p>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Semestre</p>
+                          <p className="text-[10px] text-gray-900 font-black">{seminario.semestre || '-'}</p>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Horas</p>
+                          <p className="text-[10px] text-gray-900 font-black">{seminario.horas || 20}h</p>
+                        </div>
+                        {isAprobado && studentSem?.fechaAprobacion && (
+                          <div className="flex items-center justify-between">
+                            <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Aprobado</p>
+                            <p className="text-[10px] text-emerald-700 font-black">
+                              {new Date(studentSem.fechaAprobacion).toLocaleDateString('es-CO')}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </PremiumCard>

@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { collection, getDocs, query, deleteDoc, doc, updateDoc, getDoc, where } from 'firebase/firestore';
+import { useState, useEffect, useCallback } from 'react';
+import { collection, getDocs, query, deleteDoc, doc, updateDoc, getDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -45,6 +45,14 @@ const StudentsTable = () => {
   const [courseModulesInfo, setCourseModulesInfo] = useState([]); // [{courseId, courseName, modules: []}]
   const [loadingCourseModules, setLoadingCourseModules] = useState(false);
   const [uniquePeriods, setUniquePeriods] = useState([]); // Períodos únicos disponibles
+  // Asignar Seminario
+  const [showSeminarioAssignModal, setShowSeminarioAssignModal] = useState(false);
+  const [seminarioAssignCareer, setSeminarioAssignCareer] = useState('');
+  const [seminarioAssignIdx, setSeminarioAssignIdx] = useState('');
+  const [seminarioAssignStudents, setSeminarioAssignStudents] = useState([]);
+  const [seminarioSaving, setSeminarioSaving] = useState(false);
+  // Confirmación estado seminario
+  const [seminarioConfirm, setSeminarioConfirm] = useState(null);
 
   const handleUnassignModule = async (studentId, moduleId) => {
     const studentRef = doc(db, 'students', studentId);
@@ -90,37 +98,31 @@ const StudentsTable = () => {
     }
   };
 
-  useEffect(() => {
-    const fetchStudents = async () => {
-      try {
-        const q = query(collection(db, 'students'));
-        const querySnapshot = await getDocs(q);
-        const studentsData = querySnapshot.docs.map(doc => {
-          const data = doc.data();
-          // Forzar la creación del periodo en base a createdAt primero para ignorar posibles datos sobreescritos
-          const period = data.createdAt ? calculatePeriod(data.createdAt) : (data.period || '');
-          return {
-            id: doc.id,
-            ...data,
-            period: period
-          };
-        });
-        setStudents(studentsData);
-        setLoading(false);
-      } catch (error) {
-        console.error("Error fetching students: ", error);
-        setLoading(false);
-      }
-    };
+  const fetchStudents = useCallback(async () => {
+    try {
+      const q = query(collection(db, 'students'));
+      const querySnapshot = await getDocs(q);
+      const studentsData = querySnapshot.docs.map(d => {
+        const data = d.data();
+        const period = data.createdAt ? calculatePeriod(data.createdAt) : (data.period || '');
+        return { id: d.id, ...data, period };
+      });
+      setStudents(studentsData);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching students: ', error);
+      setLoading(false);
+    }
+  }, []);
 
+  useEffect(() => {
     const fetchTeachers = async () => {
       const snapshot = await getDocs(collection(db, 'teachers'));
       setTeachers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     };
-
     fetchStudents();
     fetchTeachers();
-  }, []);
+  }, [fetchStudents]);
 
   useEffect(() => {
     setUniquePeriods(getUniquePeriods(students));
@@ -462,6 +464,13 @@ const StudentsTable = () => {
         <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto mt-4 sm:mt-0">
           {(currentUser.role === 'admin' || currentUser.role === 'secretary') && (
             <>
+              <button
+                onClick={() => setShowSeminarioAssignModal(true)}
+                className="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 font-semibold flex items-center gap-2 w-full sm:w-auto"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                Asignar Seminario
+              </button>
               <button
                 onClick={() => setShowAssignModal(true)}
                 className="bg-[#ffd600] text-[#23408e] px-4 py-2 rounded-md hover:bg-[#fff176] font-semibold flex items-center gap-2 w-full sm:w-auto"
@@ -960,61 +969,136 @@ const StudentsTable = () => {
             )}
             {studentTab === 'seminarios' && (
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-semibold text-green-700 text-lg">Seminarios obligatorios</span>
-                  <button className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 font-semibold" onClick={() => setShowSeminariosDetalle(!showSeminariosDetalle)}>{showSeminariosDetalle ? 'Ver menos' : 'Ver más'}</button>
+                <div className="flex items-center justify-between mb-4">
+                  <span className="font-semibold text-purple-700 text-lg">Seminarios Obligatorios</span>
+                  {/* Barra de progreso */}
+                  {(() => {
+                    const career = careersList.find(c => c.nombre === selectedStudent.career);
+                    const sems = career?.seminarios || [];
+                    const aprobados = sems.filter(s => {
+                      const ss = (selectedStudent.seminarios || []).find(e => e.id === s.id || e.nombre === s.nombre);
+                      return (ss?.estado || '').toLowerCase() === 'aprobado';
+                    }).length;
+                    if (sems.length === 0) return null;
+                    const pct = Math.round((aprobados / sems.length) * 100);
+                    return (
+                      <div className="flex items-center gap-3">
+                        <div className="w-32 h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-purple-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="text-xs font-black text-purple-700">{aprobados}/{sems.length}</span>
+                      </div>
+                    );
+                  })()}
                 </div>
-                {showSeminariosDetalle && (
-                  <ul className="space-y-2 mb-4">
-                    {/* Obtener seminarios completos de la carrera */}
-                    {(careersList.find(c => c.nombre === selectedStudent.career)?.seminarios || []).map((seminario, idx) => {
-                      // Buscar si el estudiante tiene estado propio para este seminario
-                      let estado = seminario.estado || 'pendiente';
-                      let info = { ...seminario };
-                      if (Array.isArray(selectedStudent.seminarios)) {
-                        // Buscar por id
-                        let sem = selectedStudent.seminarios.find(s => s.id === seminario.id);
-                        // Si no encuentra por id, buscar por nombre y semestre
-                        if (!sem) {
-                          sem = selectedStudent.seminarios.find(s => s.nombre === seminario.nombre && s.semestre === seminario.semestre);
+                {/* Lista de seminarios — siempre visible */}
+                <ul className="space-y-3 mb-4">
+                  {(() => {
+                    const career = careersList.find(c => c.nombre === selectedStudent.career);
+                    const sems = career?.seminarios || [];
+                    if (sems.length === 0) return (
+                      <li className="text-gray-400 text-xs py-8 text-center border-2 border-dashed border-gray-200 rounded-xl">
+                        No hay seminarios configurados para esta carrera.
+                      </li>
+                    );
+                    return sems.map((seminario, idx) => {
+                      const semEst = (selectedStudent.seminarios || []).find(
+                        s => s.id === seminario.id || s.nombre === seminario.nombre
+                      );
+                      const estado = (semEst?.estado || 'pendiente').toLowerCase();
+                      const isAprobado = estado === 'aprobado';
+
+                      const handleToggleEstado = () => {
+                        if (currentUser.role !== 'admin' && currentUser.role !== 'secretary') return;
+                        if (isAprobado) {
+                          // Revocar
+                          setSeminarioConfirm({
+                            message: `¿Revocar la aprobación de "${seminario.nombre}" para ${selectedStudent.name}? El estado volverá a Pendiente.`,
+                            onConfirm: async () => {
+                              setSeminarioConfirm(null);
+                              const semsEst = (selectedStudent.seminarios || []).map(ss =>
+                                (ss.id === seminario.id || ss.nombre === seminario.nombre)
+                                  ? { ...ss, estado: 'pendiente', aprobadoPor: '', fechaAprobacion: '' }
+                                  : ss
+                              );
+                              await updateDoc(doc(db, 'students', selectedStudent.id), { seminarios: semsEst });
+                              setSelectedStudent(prev => ({ ...prev, seminarios: semsEst }));
+                              toast.success('Aprobación revocada');
+                            }
+                          });
+                        } else {
+                          // Aprobar
+                          setSeminarioConfirm({
+                            message: `¿Registrar la aprobación de "${seminario.nombre}" para ${selectedStudent.name}? Esta acción queda registrada.`,
+                            onConfirm: async () => {
+                              setSeminarioConfirm(null);
+                              let semsEst = [...(selectedStudent.seminarios || [])];
+                              const existIdx = semsEst.findIndex(ss => ss.id === seminario.id || ss.nombre === seminario.nombre);
+                              const newEntry = {
+                                id: seminario.id || `seminario${idx + 1}`,
+                                nombre: seminario.nombre,
+                                semestre: seminario.semestre,
+                                profesor: seminario.profesor || '',
+                                horas: seminario.horas || 20,
+                                estado: 'aprobado',
+                                aprobadoPor: currentUser?.uid || '',
+                                fechaAprobacion: new Date().toISOString(),
+                              };
+                              if (existIdx >= 0) semsEst[existIdx] = { ...semsEst[existIdx], ...newEntry };
+                              else semsEst.push(newEntry);
+                              await updateDoc(doc(db, 'students', selectedStudent.id), { seminarios: semsEst });
+                              setSelectedStudent(prev => ({ ...prev, seminarios: semsEst }));
+                              toast.success('✅ Aprobación registrada');
+                            }
+                          });
                         }
-                        if (sem) {
-                          estado = sem.estado || seminario.estado || 'pendiente';
-                          info = { ...seminario, ...sem };
-                        }
-                      }
-                      let estadoColor = '';
-                      switch (estado.toLowerCase()) {
-                        case 'aprobado':
-                          estadoColor = 'bg-green-100 text-green-800 border-green-300';
-                          break;
-                        case 'cursando':
-                          estadoColor = 'bg-blue-100 text-blue-800 border-blue-300';
-                          break;
-                        case 'pendiente':
-                        default:
-                          estadoColor = 'bg-gray-100 text-gray-700 border-gray-300';
-                      }
+                      };
+
                       return (
-                        <li key={seminario.id} className="flex flex-col gap-1 p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-green-50 transition">
-                          <div className="flex items-center justify-between">
-                            <span className="font-semibold text-green-900 text-base truncate max-w-[60%]">{info.nombre} <span className="text-xs text-gray-500">(Semestre {info.semestre})</span></span>
-                            <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${estadoColor} ml-2`}>{estado.charAt(0).toUpperCase() + estado.slice(1)}</span>
+                        <li key={idx} className="flex flex-col gap-1.5 p-4 rounded-2xl border border-gray-200 bg-gray-50 hover:bg-purple-50 transition relative overflow-hidden">
+                          {/* Barra lateral */}
+                          <div className={`absolute top-0 left-0 w-1 h-full ${isAprobado ? 'bg-emerald-400' : 'bg-amber-300'}`} />
+                          <div className="flex items-center justify-between pl-3">
+                            <span className="font-bold text-gray-900 text-sm">
+                              {seminario.nombre}
+                              <span className="text-xs text-gray-400 font-normal ml-2">(Sem. {seminario.semestre})</span>
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className={`px-3 py-1 rounded-full text-[10px] font-black border ${
+                                isAprobado
+                                  ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                                  : 'bg-amber-50 text-amber-700 border-amber-200'
+                              }`}>
+                                {isAprobado ? '✓ Aprobado' : '⏳ Pendiente'}
+                              </span>
+                              {(currentUser.role === 'admin' || currentUser.role === 'secretary') && (
+                                <button
+                                  onClick={handleToggleEstado}
+                                  className={`text-[10px] font-bold px-3 py-1 rounded-lg border transition ${
+                                    isAprobado
+                                      ? 'text-red-500 border-red-200 hover:bg-red-50'
+                                      : 'text-emerald-600 border-emerald-200 hover:bg-emerald-50'
+                                  }`}
+                                >
+                                  {isAprobado ? 'Revocar' : 'Aprobar'}
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          <div className="text-xs text-gray-600 mt-1">
-                            <span className="font-semibold">Profesor:</span> {info.profesor || 'Sin asignar'}<br />
-                            <span className="font-semibold">Horas:</span> {info.horas || '-'}<br />
-                            <span className="font-semibold">Estado:</span> {estado.charAt(0).toUpperCase() + estado.slice(1)}
+                          <div className="text-xs text-gray-500 pl-3 flex flex-wrap gap-x-4 gap-y-0.5">
+                            <span><strong>Profesor:</strong> {seminario.profesor || 'Sin asignar'}</span>
+                            <span><strong>Horas:</strong> {seminario.horas || 20}h</span>
+                            {isAprobado && semEst?.fechaAprobacion && (
+                              <span className="text-emerald-700 font-semibold">
+                                Aprobado: {new Date(semEst.fechaAprobacion).toLocaleDateString('es-CO')}
+                              </span>
+                            )}
                           </div>
                         </li>
                       );
-                    })}
-                    {/* Si la carrera no tiene seminarios definidos, mostrar mensaje */}
-                    {(careersList.find(c => c.nombre === selectedStudent.career)?.seminarios || []).length === 0 && (
-                      <li className="text-gray-400 text-xs">No hay seminarios definidos para esta carrera.</li>
-                    )}
-                  </ul>
-                )}
+                    });
+                  })()}
+                </ul>
               </div>
             )}
 
@@ -1083,6 +1167,147 @@ const StudentsTable = () => {
           </div>
         </Dialog>
       )}
+      {/* Confirm dialog — cambio estado seminario */}
+      {seminarioConfirm && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4 border-t-4 border-amber-400">
+            <p className="text-slate-700 font-semibold text-base mb-6 leading-relaxed">{seminarioConfirm.message}</p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setSeminarioConfirm(null)} className="px-5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-semibold text-sm transition">Cancelar</button>
+              <button onClick={seminarioConfirm.onConfirm} className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-semibold text-sm transition shadow-sm">Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal asignación masiva seminario */}
+      {showSeminarioAssignModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 border-t-4 border-purple-600 max-h-[90vh] flex flex-col">
+            <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="font-black text-purple-800 text-lg">🎓 Asignar Seminario Masivo</h3>
+              <button onClick={() => { setShowSeminarioAssignModal(false); setSeminarioAssignStudents([]); setSeminarioAssignIdx(''); setSeminarioAssignCareer(''); }} className="text-2xl text-gray-300 hover:text-gray-600 font-bold transition">×</button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+              {/* Seleccionar carrera */}
+              <div>
+                <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-1">Carrera</label>
+                <select
+                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-purple-400"
+                  value={seminarioAssignCareer}
+                  onChange={e => { setSeminarioAssignCareer(e.target.value); setSeminarioAssignIdx(''); setSeminarioAssignStudents([]); }}
+                >
+                  <option value="">Seleccionar carrera...</option>
+                  {careersList.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                </select>
+              </div>
+              {/* Seleccionar seminario */}
+              {seminarioAssignCareer && (
+                <div>
+                  <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-1">Seminario</label>
+                  <select
+                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-purple-400"
+                    value={seminarioAssignIdx}
+                    onChange={e => { setSeminarioAssignIdx(e.target.value); setSeminarioAssignStudents([]); }}
+                  >
+                    <option value="">Seleccionar seminario...</option>
+                    {(careersList.find(c => c.id === seminarioAssignCareer)?.seminarios || []).map((s, i) => (
+                      <option key={i} value={String(i)}>{s.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {/* Estudiantes elegibles */}
+              {seminarioAssignCareer && seminarioAssignIdx !== '' && (() => {
+                const career = careersList.find(c => c.id === seminarioAssignCareer);
+                const sem = career?.seminarios?.[Number(seminarioAssignIdx)];
+                if (!sem) return null;
+                const eligible = students.filter(s => {
+                  if (s.career !== career.nombre || s.status !== 'active') return false;
+                  const semEst = (s.seminarios || []).find(ss => ss.id === sem.id || ss.nombre === sem.nombre);
+                  return (semEst?.estado || '').toLowerCase() !== 'aprobado';
+                });
+                return (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-black text-gray-500 uppercase tracking-wider">Estudiantes Pendientes ({eligible.length})</label>
+                      <button className="text-xs font-bold text-purple-700 hover:underline" onClick={() => setSeminarioAssignStudents(eligible.map(s => s.id))}>
+                        Seleccionar todos
+                      </button>
+                    </div>
+                    <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-50">
+                      {eligible.length === 0 && <div className="py-6 text-center text-gray-400 text-xs font-semibold">Todos ya tienen este seminario aprobado.</div>}
+                      {eligible.map(st => (
+                        <label key={st.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-purple-50 cursor-pointer transition">
+                          <input
+                            type="checkbox"
+                            className="accent-purple-600"
+                            checked={seminarioAssignStudents.includes(st.id)}
+                            onChange={e => setSeminarioAssignStudents(prev =>
+                              e.target.checked ? [...prev, st.id] : prev.filter(x => x !== st.id)
+                            )}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-slate-800 text-sm truncate">{st.name} {st.lastName || ''}</p>
+                            <p className="text-[10px] text-gray-400">Sem. {st.semester} · {st.period || '—'}</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                    {seminarioAssignStudents.length > 0 && (
+                      <p className="text-xs font-black text-emerald-700 mt-2">{seminarioAssignStudents.length} seleccionado(s)</p>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+              <button onClick={() => { setShowSeminarioAssignModal(false); setSeminarioAssignStudents([]); }} className="px-5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold text-sm transition">Cancelar</button>
+              <button
+                disabled={seminarioAssignStudents.length === 0 || seminarioSaving || seminarioAssignIdx === ''}
+                onClick={async () => {
+                  setSeminarioSaving(true);
+                  try {
+                    const career = careersList.find(c => c.id === seminarioAssignCareer);
+                    const sem = career?.seminarios?.[Number(seminarioAssignIdx)];
+                    const batch = writeBatch(db);
+                    for (const sid of seminarioAssignStudents) {
+                      const student = students.find(s => s.id === sid);
+                      if (!student) continue;
+                      let semsEst = [...(student.seminarios || [])];
+                      const existIdx = semsEst.findIndex(ss => ss.id === sem.id || ss.nombre === sem.nombre);
+                      const newEntry = {
+                        id: sem.id || `seminario${Number(seminarioAssignIdx) + 1}`,
+                        nombre: sem.nombre, semestre: sem.semestre,
+                        profesor: sem.profesor || '', horas: sem.horas || 20,
+                        estado: 'aprobado',
+                        aprobadoPor: currentUser?.uid || '',
+                        fechaAprobacion: new Date().toISOString(),
+                      };
+                      if (existIdx >= 0) semsEst[existIdx] = { ...semsEst[existIdx], ...newEntry };
+                      else semsEst.push(newEntry);
+                      batch.update(doc(db, 'students', sid), { seminarios: semsEst });
+                    }
+                    await batch.commit();
+                    toast.success(`✅ Aprobación registrada para ${seminarioAssignStudents.length} estudiante(s)`);
+                    setShowSeminarioAssignModal(false);
+                    setSeminarioAssignStudents([]);
+                    setSeminarioAssignIdx('');
+                    setSeminarioAssignCareer('');
+                    // Recargar lista
+                    await fetchStudents();
+                  } catch(e) { console.error(e); toast.error('Error al guardar'); }
+                  finally { setSeminarioSaving(false); }
+                }}
+                className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-black text-sm shadow transition disabled:opacity-60"
+              >
+                {seminarioSaving ? 'Guardando...' : `✅ Aprobar (${seminarioAssignStudents.length})`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
