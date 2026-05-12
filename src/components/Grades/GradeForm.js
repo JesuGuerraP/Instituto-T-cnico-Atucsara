@@ -85,7 +85,9 @@ const GradeForm = ({
     return modules.filter(m => {
       if (scope === 'career') {
         if (m.source !== 'career') return false;
-        return !selectedSemester || String(m.semestre || m.semester) === String(selectedSemester);
+        if (!selectedSemester) return true;
+        if (m.isGeneral) return m.semesters?.includes(String(selectedSemester));
+        return String(m.semestre || m.semester) === String(selectedSemester);
       }
       if (scope === 'course') {
         return m.source === 'course';
@@ -108,16 +110,12 @@ const GradeForm = ({
       Array.isArray(s.modulosAsignados) &&
       s.modulosAsignados.some(m => m.id === selectedModule.id && m.estado === 'reprobado');
 
-    // Módulo general tratado como carrera: filtrar por carreras válidas, semestre y que tenga el módulo asignado
+    // Módulo general tratado como carrera: si el estudiante lo tiene asignado, lo mostramos
+    // No filtramos por semestre actual del UI para permitir calificar a todos los alumnos del módulo a la vez
     if (scope === 'career' && selectedModule.isGeneral) {
       return activeStudents.filter(s => {
-        const validCareer = Array.isArray(selectedModule.careerList)
-          ? selectedModule.careerList.includes(s.career)
-          : (selectedModule.carrera ? s.career === selectedModule.carrera : true);
-        const validSemester = String(s.semester) === String(selectedModule.semestre) || String(s.semestre) === String(selectedModule.semestre);
         const hasModule = Array.isArray(s.modulosAsignados) && s.modulosAsignados.some(m => m.id === selectedModule.id);
-        // Incluir si está en el semestre correcto O si está repitiendo (reprobado)
-        return validCareer && (validSemester && hasModule || isRepeating(s));
+        return hasModule;
       });
     }
 
@@ -179,10 +177,21 @@ const GradeForm = ({
 
   // **MANEJADOR ACTUALIZADO**: para selección múltiple de estudiantes
   const handleStudentSelect = (options) => {
-    setSelectedStudents(options || []);
-    // Limpiar notas si la selección cambia
+    const selected = options || [];
+    setSelectedStudents(selected);
+    
+    // Solo limpiar las notas de los estudiantes que ya no están seleccionados
     if (!editGrade) {
-      setStudentGrades({});
+      setStudentGrades(prev => {
+        const newGrades = { ...prev };
+        const selectedIds = new Set(selected.map(opt => opt.value));
+        Object.keys(newGrades).forEach(id => {
+          if (!selectedIds.has(id)) {
+            delete newGrades[id];
+          }
+        });
+        return newGrades;
+      });
     }
   };
 
@@ -232,6 +241,8 @@ const GradeForm = ({
           ...form,
           studentId: studentId,
           studentName: studentData ? `${studentData.name} ${studentData.lastName}` : '',
+          // Para asegurar que la nota se guarde en el semestre real del estudiante, no en el del filtro UI
+          semester: scope === 'career' ? (studentData?.semester || studentData?.semestre || form.semester) : '',
           grade: grade,
           id: isHabilitacion
             ? `${studentId}_${form.moduleId}_HABILITACION`

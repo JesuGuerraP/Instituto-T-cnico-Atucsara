@@ -131,17 +131,16 @@ const GradeManager = () => {
           const semesters = Array.from(new Set((gm.carreraSemestres || []).map(cs => String(cs.semester))))
             || (Array.isArray(gm.semestres) ? gm.semestres.map(s => String(s)) : []);
           const careerList = Array.from(new Set((gm.carreraSemestres || []).map(cs => cs.career)));
-          semesters.forEach(sem => {
-            allModules.push({
-              id: gDoc.id,
-              nombre: (gm.nombre || '') + ' (General)',
-              profesor: gm.profesor,
-              descripcion: gm.descripcion || '',
-              semestre: sem,
-              source: 'career',
-              isGeneral: true,
-              careerList
-            });
+          allModules.push({
+            id: gDoc.id,
+            nombre: (gm.nombre || '') + ' (General)',
+            profesor: gm.profesor,
+            profesorEmail: gm.profesorEmail,
+            descripcion: gm.descripcion || '',
+            semesters: semesters,
+            source: 'career',
+            isGeneral: true,
+            careerList
           });
         });
       } catch (e) {
@@ -268,14 +267,20 @@ const GradeManager = () => {
 
       if (selectedScope === 'career') {
         if (moduleInfo?.source !== 'career') return false;
-        // Usar el semestre del módulo (no el del estudiante) para el filtro
-        // Esto soporta estudiantes de otro semestre que repiten el módulo
-        if (selectedSemester) {
-          const effectiveSemester = moduleInfo
-            ? String(moduleInfo.semestre || moduleInfo.semester || g.semester)
-            : String(g.semester);
-          if (effectiveSemester !== String(selectedSemester)) return false;
+        
+        // Si se selecciona un módulo específico, mostramos todas sus notas sin importar el semestre actual.
+        // Esto facilita ver a todos los estudiantes de un módulo general o que repiten.
+        if (selectedSemester && !careerFilters.module) {
+          if (moduleInfo?.isGeneral) {
+            if (String(g.semester) !== String(selectedSemester)) return false;
+          } else {
+            const effectiveSemester = moduleInfo
+              ? String(moduleInfo.semestre || moduleInfo.semester || g.semester)
+              : String(g.semester);
+            if (effectiveSemester !== String(selectedSemester)) return false;
+          }
         }
+        
         if (careerFilters.module && g.moduleName !== careerFilters.module) return false;
         if (careerFilters.student && g.studentId !== careerFilters.student) return false;
         // Usar groupId para el filtro para ser consistente con el formulario
@@ -309,8 +314,7 @@ const GradeManager = () => {
         // independientemente de su semestre actual (soporta estudiantes que repiten)
         const moduloSel = teacherModules.find(m =>
           m.source === 'career' &&
-          m.nombre === careerFilters.module &&
-          (!selectedSemester || String(m.semestre || m.semester) === String(selectedSemester))
+          m.nombre === careerFilters.module
         );
         if (moduloSel) {
           filtered = students.filter(s =>
@@ -455,7 +459,12 @@ const GradeManager = () => {
                   onChange={e => setCareerFilters(f => ({ ...f, module: e.target.value }))}>
                   <option value="">Todos los Módulos</option>
                   {teacherModules
-                    .filter(m => m.source === 'career' && (!selectedSemester || String(m.semestre || m.semester) === String(selectedSemester)))
+                    .filter(m => {
+                      if (m.source !== 'career') return false;
+                      if (!selectedSemester) return true;
+                      if (m.isGeneral) return m.semesters?.includes(String(selectedSemester));
+                      return String(m.semestre || m.semester) === String(selectedSemester);
+                    })
                     .map(m => <option key={m.id} value={m.nombre}>{m.nombre}</option>)}
                 </select>
               </div>
